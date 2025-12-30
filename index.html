@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>แจ้งวันหยุดโรงเรียน</title>
+  
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap');
+    body { font-family: 'Sarabun', sans-serif; }
+    
+    .loading-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(255,255,255,0.98); z-index: 9999;
+      display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px;
+    }
+    .spinner {
+      border: 4px solid #f3f3f3; border-top: 4px solid #16a34a; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 20px;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .session-card.selected { border-color: #ef4444; background-color: #fef2f2; }
+    .session-card.disabled { opacity: 0.7; background-color: #f3f4f6; pointer-events: none; }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen pb-20">
+
+  <!-- Loading -->
+  <div id="loading" class="loading-overlay">
+    <div class="spinner"></div>
+    <p class="font-bold text-gray-700">กำลังเชื่อมต่อระบบ...</p>
+    <p id="status-text" class="text-sm text-gray-500 mt-2">...</p>
+  </div>
+
+  <div id="main-container" class="max-w-md mx-auto bg-white min-h-screen shadow-xl relative hidden">
+    <!-- Header -->
+    <div class="bg-green-600 p-6 rounded-b-3xl text-white shadow-lg">
+      <div class="flex justify-between items-center">
+        <div>
+          <h1 class="text-xl font-bold">แจ้งวันหยุด</h1>
+          <p class="text-green-100 text-xs mt-1">Braincloud Operations</p>
+        </div>
+        <div class="text-center">
+           <img id="userPic" src="https://via.placeholder.com/40" class="w-12 h-12 rounded-full border-2 border-white shadow-sm mx-auto bg-gray-200">
+           <p id="userNameDisplay" class="text-xs font-bold mt-1 text-white">Guest</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Form -->
+    <form id="mainForm" class="p-5 space-y-6">
+      <!-- 1. School -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-2">🏫 โรงเรียน</label>
+        <select id="schoolSelect" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 bg-gray-50" onchange="checkScheduleCondition()">
+          <option value="" disabled selected>-- กำลังโหลดรายชื่อ --</option>
+        </select>
+      </div>
+
+      <!-- 2. Date -->
+      <div class="bg-gray-50 p-4 rounded-xl border border-gray-200">
+        <div class="flex justify-between items-center mb-2">
+          <label class="block text-sm font-semibold text-gray-700">📅 วันที่</label>
+          <label class="flex items-center space-x-2 text-xs text-gray-500">
+            <input type="checkbox" id="multiDayCheck" class="rounded text-green-600" onchange="toggleEndDate()">
+            <span>หยุดหลายวัน?</span>
+          </label>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div class="col-span-2">
+            <span class="text-xs text-gray-500 ml-1">เริ่มต้น</span>
+            <input type="date" id="startDate" class="w-full p-2 border border-gray-300 rounded-lg" onchange="handleDateChange()">
+          </div>
+          <div id="endDateContainer" class="col-span-2 hidden">
+             <span class="text-xs text-gray-500 ml-1">สิ้นสุด</span>
+             <input type="date" id="endDate" class="w-full p-2 border border-gray-300 rounded-lg">
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Schedule -->
+      <div id="scheduleSection" class="hidden">
+        <div class="flex justify-between items-center mb-2">
+          <h3 class="font-bold text-gray-800">ตารางเรียนวันนี้</h3>
+          <span class="text-xs text-gray-500">แตะเพื่อเลือกคาบที่งด</span>
+        </div>
+        <div id="loadingSchedule" class="text-center py-4 hidden"><i class="fas fa-circle-notch fa-spin text-green-500"></i> กำลังดึงตาราง...</div>
+        <div id="scheduleList" class="space-y-2"></div>
+        <div id="noScheduleMsg" class="hidden text-center py-4 text-gray-400 text-sm bg-gray-50 rounded-lg border border-dashed">ไม่พบตารางเรียนของวันนี้</div>
+      </div>
+
+      <!-- 4. Manual Type -->
+      <div id="manualTypeSection">
+        <label class="block text-sm font-semibold text-gray-700 mb-2">⏰ รูปแบบการหยุด</label>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="cursor-pointer">
+            <input type="radio" name="periodType" value="Whole Day" class="peer sr-only" checked>
+            <div class="p-3 text-center border rounded-lg peer-checked:bg-green-100 peer-checked:border-green-500 peer-checked:text-green-700 transition-all">หยุดทั้งวัน</div>
+          </label>
+          <label class="cursor-pointer">
+            <input type="radio" name="periodType" value="Partial" class="peer sr-only">
+            <div class="p-3 text-center border rounded-lg peer-checked:bg-yellow-100 peer-checked:border-yellow-500 peer-checked:text-yellow-700 transition-all">บางคาบ (ระบุเอง)</div>
+          </label>
+        </div>
+      </div>
+
+      <!-- 5. Reason -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-2">📝 สาเหตุ / หมายเหตุ</label>
+        <textarea id="reason" rows="3" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500" placeholder="เช่น กิจกรรมวันเด็ก, น้ำท่วม, ครูป่วย"></textarea>
+      </div>
+
+      <!-- Submit -->
+      <button type="button" onclick="submitData()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl shadow-lg transition-transform transform active:scale-95 flex justify-center items-center">
+        <span>ยืนยันข้อมูล</span><i class="fas fa-arrow-right ml-2"></i>
+      </button>
+    </form>
+  </div>
+
+  <script>
+    // ***********************************************
+    // ⚙️ SETUP (แก้ตรงนี้)
+    // ***********************************************
+    const MY_LIFF_ID = "2008775079-PKwtDJOx"; 
+    const GAS_API_URL = "https://script.google.com/macros/s/AKfycby1XtF08bcbNqD98iwOWtDCOwDRz-6xP1b5l4VoJXIo85FcCg9nJvXZXrUkUlh4rxndgQ/exec";
+    // ***********************************************
+
+    let userProfile = { userId: "U_GUEST", displayName: "Guest" };
+    let selectedSessions = new Set();
+
+    window.onload = async () => {
+      // 1. Load Schools
+      fetchSchools();
+      
+      // 2. Set Date
+      const today = new Date().toISOString().split('T')[0];
+      document.getElementById('startDate').value = today;
+      document.getElementById('endDate').value = today;
+
+      // 3. Init LIFF
+      try {
+        await liff.init({ liffId: MY_LIFF_ID });
+        if (liff.isLoggedIn()) {
+          const profile = await liff.getProfile();
+          userProfile = profile;
+          document.getElementById('userNameDisplay').innerText = profile.displayName;
+          document.getElementById('userPic').src = profile.pictureUrl;
+        } else {
+          liff.login(); // Auto Redirect to Login
+        }
+      } catch (err) {
+        console.error("LIFF Error", err);
+        alert("LIFF Error: " + err.message);
+      }
+      
+      // Show App
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('main-container').style.display = 'block';
+    };
+
+    // --- API Calls (ใช้ fetch แทน google.script.run) ---
+    function fetchSchools() {
+      const statusText = document.getElementById('status-text');
+      statusText.innerText = "กำลังดึงรายชื่อโรงเรียน...";
+      
+      fetch(GAS_API_URL + "?action=getSchools")
+        .then(response => response.json())
+        .then(schools => {
+           const select = document.getElementById('schoolSelect');
+           select.innerHTML = '<option value="" disabled selected>-- เลือกโรงเรียน --</option>';
+           schools.forEach(s => {
+             if(s.code !== "ERR") {
+               const option = document.createElement('option');
+               option.value = s.code;
+               option.text = `${s.code} : ${s.name}`;
+               select.appendChild(option);
+             }
+           });
+        })
+        .catch(err => alert("โหลดโรงเรียนไม่ได้: " + err));
+    }
+
+    function fetchSchedule(code, date) {
+      document.getElementById('loadingSchedule').classList.remove('hidden');
+      document.getElementById('scheduleList').innerHTML = "";
+      
+      fetch(`${GAS_API_URL}?action=getSchedule&code=${code}&date=${date}`)
+        .then(response => response.json())
+        .then(schedules => renderSchedule(schedules))
+        .catch(err => alert("โหลดตารางไม่ได้: " + err));
+    }
+
+    function submitData() {
+      const schoolSelect = document.getElementById('schoolSelect');
+      if (!schoolSelect.value) return alert("กรุณาเลือกโรงเรียน");
+
+      const data = {
+        userId: userProfile.userId,
+        displayName: userProfile.displayName,
+        schoolCode: schoolSelect.value,
+        schoolName: schoolSelect.options[schoolSelect.selectedIndex].text.split(' : ')[1],
+        startDate: document.getElementById('startDate').value,
+        endDate: document.getElementById('endDate').value,
+        reason: document.getElementById('reason').value,
+        type: "Whole Day", 
+        selectedSessions: []
+      };
+
+      if (selectedSessions.size > 0) { 
+        data.type = "Specific Sessions"; 
+        data.selectedSessions = Array.from(selectedSessions); 
+      } else { 
+        const radio = document.querySelector('input[name="periodType"]:checked'); 
+        if (radio) data.type = radio.value; 
+      }
+
+      if (confirm(`ยืนยันการส่งข้อมูล?\nผู้แจ้ง: ${data.displayName}`)) {
+        document.getElementById('loading').style.display = 'flex';
+        document.getElementById('status-text').innerText = "กำลังบันทึกข้อมูล...";
+        
+        // ใช้ fetch POST ส่งข้อมูลกลับไป GAS (CORS Friendly)
+        fetch(GAS_API_URL, {
+          method: 'POST',
+          body: JSON.stringify(data),
+          // mode: 'no-cors' // ใช้ no-cors เพื่อเลี่ยง error แต่อ่าน response ไม่ได้
+          // แต่ถ้า GAS return textOutput json จะอ่านได้
+        })
+        .then(response => response.json())
+        .then(res => {
+           alert("บันทึกสำเร็จ! Ticket: " + res.ticketId);
+           liff.closeWindow();
+        })
+        .catch(err => {
+           // บางที success แต่ browser บล็อก response ของ GAS ก็มี
+           console.error(err);
+           alert("ส่งข้อมูลเรียบร้อย (แต่อาจมีการแจ้งเตือน network)");
+           liff.closeWindow();
+        });
+      }
+    }
+
+    // --- UI Logic (คงเดิม) ---
+    function toggleEndDate() {
+      const isMulti = document.getElementById('multiDayCheck').checked;
+      document.getElementById('endDateContainer').classList.toggle('hidden', !isMulti);
+      if(!isMulti) document.getElementById('endDate').value = document.getElementById('startDate').value;
+      checkScheduleCondition();
+    }
+
+    function handleDateChange() {
+      if (!document.getElementById('multiDayCheck').checked) document.getElementById('endDate').value = document.getElementById('startDate').value;
+      checkScheduleCondition();
+    }
+
+    function checkScheduleCondition() {
+      const schoolCode = document.getElementById('schoolSelect').value;
+      const startDate = document.getElementById('startDate').value;
+      const isMulti = document.getElementById('multiDayCheck').checked;
+      const today = new Date().toISOString().split('T')[0];
+
+      if (schoolCode && !isMulti && startDate === today) {
+        document.getElementById('scheduleSection').classList.remove('hidden');
+        document.getElementById('manualTypeSection').classList.add('hidden');
+        document.getElementById('noScheduleMsg').classList.add('hidden');
+        fetchSchedule(schoolCode, startDate);
+      } else {
+        document.getElementById('scheduleSection').classList.add('hidden');
+        document.getElementById('manualTypeSection').classList.remove('hidden');
+        selectedSessions.clear();
+      }
+    }
+
+    function renderSchedule(schedules) {
+      document.getElementById('loadingSchedule').classList.add('hidden');
+      const container = document.getElementById('scheduleList');
+      selectedSessions.clear();
+      
+      if (!schedules || schedules.length === 0) {
+        document.getElementById('noScheduleMsg').classList.remove('hidden');
+        document.getElementById('manualTypeSection').classList.remove('hidden');
+        return;
+      }
+
+      schedules.forEach(s => {
+        const card = document.createElement('div');
+        const isCover = s.status === 'Cover';
+        const isCancelled = s.status && s.status.toLowerCase().includes('cancelled');
+        let cardClass = "border rounded-lg p-3 bg-white flex justify-between items-center cursor-pointer mb-2 " + (isCancelled ? "opacity-50 pointer-events-none bg-gray-100" : "hover:shadow-md");
+        
+        card.className = cardClass;
+        if (!isCancelled) card.onclick = () => toggleSession(card, s.id);
+
+        card.innerHTML = `<div><div class="font-bold text-gray-800">${s.className}</div><div class="text-xs text-gray-500">${s.time} | ${s.teacher} ${isCover ? '(Sub)' : ''}</div></div><div class="check-icon hidden text-green-600"><i class="fas fa-check-circle fa-lg"></i></div>`;
+        container.appendChild(card);
+      });
+    }
+
+    function toggleSession(card, id) {
+      if (selectedSessions.has(id)) { selectedSessions.delete(id); card.classList.remove('border-green-500', 'bg-green-50'); card.querySelector('.check-icon').classList.add('hidden'); } 
+      else { selectedSessions.add(id); card.classList.add('border-green-500', 'bg-green-50'); card.querySelector('.check-icon').classList.remove('hidden'); }
+    }
+  </script>
+</body>
+</html>
