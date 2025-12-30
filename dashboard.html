@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BC Operations Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap');
+    body { font-family: 'Sarabun', sans-serif; background-color: #f1f5f9; }
+    .tab-active { border-bottom: 3px solid #16a34a; color: #16a34a; font-weight: bold; }
+    .tab-inactive { color: #64748b; }
+    .card { background: white; border-radius: 12px; padding: 15px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  </style>
+</head>
+<body class="pb-20">
+
+  <!-- Header -->
+  <div class="bg-slate-800 text-white p-5 sticky top-0 z-50 shadow-md">
+    <div class="flex justify-between items-center">
+      <h1 class="text-lg font-bold"><i class="fas fa-chart-line mr-2"></i>BC Dashboard</h1>
+      <span class="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300" id="dateDisplay">Loading...</span>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="flex bg-white shadow-sm sticky top-16 z-40">
+    <button onclick="switchTab('schedule')" id="tab-schedule" class="flex-1 py-3 text-sm text-center tab-active">
+      <i class="fas fa-calendar-day mr-1"></i> ตารางสอนวันนี้
+    </button>
+    <button onclick="switchTab('cancel')" id="tab-cancel" class="flex-1 py-3 text-sm text-center tab-inactive">
+      <i class="fas fa-exclamation-circle mr-1"></i> การแจ้งยกเลิก
+    </button>
+  </div>
+
+  <!-- Content: Schedule -->
+  <div id="view-schedule" class="p-4">
+    
+    <!-- Filter Controls -->
+    <div class="bg-white p-4 rounded-xl shadow-sm mb-4">
+      <label class="text-xs font-bold text-slate-500 uppercase">กรองข้อมูลตาม:</label>
+      <div class="grid grid-cols-3 gap-2 mt-2">
+        <button onclick="setFilterMode('teacher')" id="btn-f-teacher" class="border rounded px-2 py-1 text-xs bg-green-100 text-green-700 border-green-500">ครู</button>
+        <button onclick="setFilterMode('school')" id="btn-f-school" class="border rounded px-2 py-1 text-xs">โรงเรียน</button>
+        <button onclick="setFilterMode('coord')" id="btn-f-coord" class="border rounded px-2 py-1 text-xs">Coordinator</button>
+      </div>
+      
+      <select id="filterSelect" class="w-full mt-3 p-2 border rounded-lg bg-slate-50 text-sm" onchange="applyFilter()">
+        <option value="all">-- แสดงทั้งหมด --</option>
+      </select>
+    </div>
+
+    <!-- Stats -->
+    <div class="flex justify-between text-xs text-slate-500 px-2 mb-2">
+      <span id="sessionCount">0 คาบเรียน</span>
+      <span id="filterLabel">ทั้งหมด</span>
+    </div>
+
+    <!-- List -->
+    <div id="scheduleList" class="space-y-2">
+      <div class="text-center py-10 text-slate-400">
+        <i class="fas fa-circle-notch fa-spin text-2xl"></i><br>กำลังโหลดข้อมูล...
+      </div>
+    </div>
+  </div>
+
+  <!-- Content: Cancellation -->
+  <div id="view-cancel" class="p-4 hidden">
+    <h2 class="text-sm font-bold text-slate-700 mb-3">รายการแจ้งเข้ามาล่าสุด (วันนี้)</h2>
+    <div id="cancelList" class="space-y-3">
+       <!-- List -->
+    </div>
+  </div>
+
+  <script>
+    // ⚙️ SETUP: ใส่ URL ของ Apps Script เดิมของคุณ
+    const GAS_API_URL = "URL_APPS_SCRIPT_ที่ได้จากการ_DEPLOY_ล่าสุด"; 
+
+    let rawData = {};
+    let currentFilterMode = 'teacher';
+
+    window.onload = async () => {
+      // Set Date
+      const today = new Date();
+      document.getElementById('dateDisplay').innerText = today.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+
+      // Fetch Data
+      try {
+        const res = await fetch(`${GAS_API_URL}?action=getDashboardData`);
+        rawData = await res.json();
+        
+        // Init Filter
+        setFilterMode('teacher');
+        renderCancellations();
+        
+      } catch (err) {
+        alert("โหลดข้อมูลไม่สำเร็จ: " + err);
+      }
+    };
+
+    function switchTab(tab) {
+      document.getElementById('view-schedule').classList.add('hidden');
+      document.getElementById('view-cancel').classList.add('hidden');
+      document.getElementById('tab-schedule').className = "flex-1 py-3 text-sm text-center tab-inactive";
+      document.getElementById('tab-cancel').className = "flex-1 py-3 text-sm text-center tab-inactive";
+
+      document.getElementById('view-' + tab).classList.remove('hidden');
+      document.getElementById('tab-' + tab).className = "flex-1 py-3 text-sm text-center tab-active";
+    }
+
+    function setFilterMode(mode) {
+      currentFilterMode = mode;
+      
+      // Update Buttons
+      ['teacher', 'school', 'coord'].forEach(m => {
+        const btn = document.getElementById('btn-f-' + m);
+        if(m === mode) btn.className = "border rounded px-2 py-1 text-xs bg-green-100 text-green-700 border-green-500 font-bold";
+        else btn.className = "border rounded px-2 py-1 text-xs text-slate-600 border-slate-200";
+      });
+
+      // Populate Select
+      const select = document.getElementById('filterSelect');
+      select.innerHTML = '<option value="all">-- แสดงทั้งหมด --</option>';
+      
+      let items = [];
+      if(mode === 'teacher') items = rawData.filters.teachers;
+      if(mode === 'school') items = rawData.filters.schools;
+      if(mode === 'coord') items = rawData.filters.coordinators;
+
+      items.forEach(item => {
+        const opt = document.createElement('option');
+        opt.value = item;
+        opt.text = item;
+        select.appendChild(opt);
+      });
+      
+      applyFilter();
+    }
+
+    function applyFilter() {
+      const val = document.getElementById('filterSelect').value;
+      const list = document.getElementById('scheduleList');
+      list.innerHTML = "";
+
+      // Filter Logic
+      const filtered = rawData.sessions.filter(s => {
+        if (val === 'all') return true;
+        if (currentFilterMode === 'teacher') return s.teacher === val;
+        if (currentFilterMode === 'school') return s.school === val;
+        if (currentFilterMode === 'coord') return s.coordinator === val;
+      });
+
+      document.getElementById('sessionCount').innerText = `${filtered.length} คาบเรียน`;
+      document.getElementById('filterLabel').innerText = val === 'all' ? 'ทั้งหมด' : val;
+
+      // Sort by Time
+      filtered.sort((a,b) => a.time.localeCompare(b.time));
+
+      if (filtered.length === 0) {
+        list.innerHTML = `<div class="text-center py-10 text-slate-400">ไม่พบข้อมูล</div>`;
+        return;
+      }
+
+      // Render
+      filtered.forEach(s => {
+        const isCover = s.status === 'Cover';
+        const isCancel = s.status.includes('Cancel');
+        
+        let statusBadge = "";
+        if(isCover) statusBadge = `<span class="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-yellow-100 text-yellow-700">Cover</span>`;
+        if(isCancel) statusBadge = `<span class="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-red-100 text-red-700">Cancel</span>`;
+
+        const html = `
+          <div class="card flex justify-between items-start ${isCancel ? 'opacity-75 bg-slate-50' : ''}">
+            <div>
+              <div class="flex items-center">
+                <span class="font-bold text-slate-800">${s.school}</span>
+                <span class="ml-2 text-xs text-slate-500 bg-slate-100 px-1 rounded">${s.class}</span>
+                ${statusBadge}
+              </div>
+              <div class="text-xs text-slate-500 mt-1">
+                <i class="far fa-clock w-4"></i> ${s.time}
+              </div>
+              <div class="text-xs text-slate-600 mt-1">
+                <i class="far fa-user w-4"></i> ${s.teacher}
+              </div>
+            </div>
+            <div class="text-[10px] text-slate-400 text-right">
+              ${s.coordinator}<br>Coord.
+            </div>
+          </div>
+        `;
+        list.innerHTML += html;
+      });
+    }
+
+    function renderCancellations() {
+      const list = document.getElementById('cancelList');
+      const cancels = rawData.cancellations;
+      
+      if(cancels.length === 0) {
+        list.innerHTML = `<div class="text-center py-10 text-slate-400">วันนี้ไม่มีรายการแจ้งยกเลิก</div>`;
+        return;
+      }
+
+      cancels.forEach(c => {
+        const html = `
+          <div class="card border-l-4 border-red-500">
+            <div class="flex justify-between">
+              <span class="font-bold text-red-600">${c.school}</span>
+              <span class="text-xs text-slate-400">${new Date(c.time).toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'})}</span>
+            </div>
+            <div class="text-sm font-bold mt-1">${c.type}</div>
+            <div class="text-xs text-slate-600 mt-1 bg-slate-50 p-2 rounded">${c.reason}</div>
+            <div class="text-[10px] text-slate-400 mt-2 text-right">แจ้งโดย: ${c.user}</div>
+          </div>
+        `;
+        list.innerHTML += html;
+      });
+    }
+  </script>
+</body>
+</html>
