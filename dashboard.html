@@ -256,9 +256,45 @@
         ul.innerHTML = "<li class='text-gray-400'>- ไม่มีครูลา -</li>";
         return;
       }
-      list.forEach(p => {
-        ul.innerHTML += `<li><span class="font-bold">${p.name}</span> <span class="text-[10px] text-gray-300">(${p.period})</span> <span class="text-[10px] text-orange-300">${p.reason}</span></li>`;
+
+      // Sort: FT ก่อน PT
+      list.sort((a, b) => (a.type === 'Full-time' ? -1 : 1));
+
+      list.forEach((p, index) => {
+        const typeColor = p.type === 'Full-time' ? 'text-blue-300' : 'text-orange-300';
+        const impactHtml = p.impacts.length > 0 
+          ? `<div class="mt-1 ml-2 pl-2 border-l border-gray-600 text-[10px] text-gray-400">
+               ${p.impacts.map(i => {
+                  let statusIcon = i.status === 'Cover' ? '🔄' : (i.status.includes('Cancel') ? '❌' : '❓');
+                  let statusText = i.status === 'Cover' ? `Cover by ${i.actualTeacher}` : i.status;
+                  return `<div>${i.time} [${i.school}] ${statusIcon} ${statusText}</div>`;
+               }).join('')}
+             </div>`
+          : `<div class="mt-1 ml-2 text-[10px] text-gray-500">- ไม่มีสอน -</div>`;
+
+        ul.innerHTML += `
+          <li class="mb-2 pb-2 border-b border-gray-600 last:border-0">
+            <div class="flex justify-between items-center">
+               <span class="font-bold text-sm">${p.name}</span>
+               <span class="text-[10px] ${typeColor} border border-gray-500 px-1 rounded">${p.type === 'Full-time' ? 'FT' : 'PT'}</span>
+            </div>
+            <div class="flex justify-between text-[10px] text-gray-300 mt-1">
+               <span>🕒 ${p.period}</span>
+               <span class="text-orange-200">${p.reason}</span>
+            </div>
+            <!-- Toggle Details Button -->
+            <button onclick="toggleImpact('impact-${index}')" class="text-[10px] text-blue-400 mt-1 underline">
+               ดูตารางสอนที่กระทบ (${p.impacts.length})
+            </button>
+            <div id="impact-${index}" class="hidden">
+               ${impactHtml}
+            </div>
+          </li>`;
       });
+    }
+
+    function toggleImpact(id) {
+       document.getElementById(id).classList.toggle('hidden');
     }
 
     function toggleAbsentList() {
