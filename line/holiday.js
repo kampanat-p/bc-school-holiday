@@ -184,6 +184,10 @@ function getAbsenceData(dateStr) {
   const rawUA = uaSheet.getDataRange().getValues();
   const targetDate = dateStr ? dateStr : Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
   
+  // ดึงตารางสอนวันนี้เพื่อเช็ค Impact
+  const cacheSheet = ss.getSheetByName(CONFIG.SHEET_NAME_CACHE);
+  const rawCache = cacheSheet ? cacheSheet.getDataRange().getValues() : [];
+  
   const absentees = [];
 
   for(let i=1; i<rawUA.length; i++) {
@@ -198,11 +202,31 @@ function getAbsenceData(dateStr) {
        let startTime = formatTimeOnly(row[4]);
        let endTime = formatTimeOnly(row[5]);
 
+       // หา Impact (คาบที่ได้รับผลกระทบ)
+       let impacts = [];
+       for(let j=1; j<rawCache.length; j++) {
+          let cRow = rawCache[j];
+          // cRow: 4=TeacherName, 6=OriginalTeacher
+          // เช็คว่าคาบนี้เดิมเป็นของครูคนนี้หรือไม่
+          if (cRow[6] === teacher.name || (cRow[4] === teacher.name && cRow[8] !== 'Cover')) {
+             // เช็คเวลาว่าชนกับช่วงลาไหม (แบบง่าย: เช็คแค่ชื่อครูในวันนั้นก่อน)
+             // ถ้าจะเอาละเอียดต้องเทียบเวลา start-end แต่เบื้องต้นเอาแค่รายชื่อวิชาที่สอนวันนี้
+             impacts.push({
+               time: cRow[3],
+               school: cRow[1],
+               class: cRow[2],
+               status: cRow[8], // Cover, Cancelled, Normal
+               actualTeacher: cRow[4]
+             });
+          }
+       }
+
        absentees.push({
          name: teacher.name,
          type: teacher.type,
          period: `${startTime} - ${endTime}`,
-         reason: row[6]
+         reason: row[6],
+         impacts: impacts
        });
     }
   }
@@ -232,7 +256,17 @@ function formatDateStandard(dateObj) {
 }
 
 function formatTimeOnly(val) {
+  if (!val) return "00:00";
   if (val instanceof Date) return Utilities.formatDate(val, "Asia/Bangkok", "HH:mm");
+  
+  // Handle Excel decimal time (e.g., 0.388888888888889 for 09:20)
+  if (typeof val === 'number') {
+    let totalSeconds = Math.round(val * 86400);
+    let h = Math.floor(totalSeconds / 3600);
+    let m = Math.floor((totalSeconds % 3600) / 60);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
+
   // ถ้าเป็น Text ให้ normalize
   return normalizeTimeStr(String(val));
 }
@@ -293,13 +327,14 @@ function getDashboardData() {
   // Cancellations
   const pendingSheet = ss.getSheetByName(CONFIG.SHEET_NAME_DESTINATION);
   const cancellations = [];
+  const todayStr = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
+
   if (pendingSheet) {
     const rawPending = pendingSheet.getDataRange().getValues();
-    const today = new Date().toISOString().split('T')[0];
     for(let i=1; i<rawPending.length; i++) {
       let row = rawPending[i];
       let pDate = String(row[4]).replace(/'/g, "");
-      if(pDate === today) {
+      if(pDate === todayStr) {
         cancellations.push({
           ticket: row[0], school: row[3], type: row[6],
           reason: row[8], user: row[2], time: row[1]
@@ -308,6 +343,9 @@ function getDashboardData() {
     }
   }
 
+  // Get Absence Data (Reuse existing function)
+  const absentees = getAbsenceData(todayStr);
+
   return {
     sessions: sessions,
     filters: {
@@ -315,7 +353,9 @@ function getDashboardData() {
       schools: Array.from(schools).sort(),
       coordinators: Array.from(coords).sort()
     },
-    cancellations: cancellations
+    cancellations: cancellations,
+    absentCount: absentees.length,
+    absentees: absentees // ส่งรายชื่อคนลาไปด้วย
   };
 }
 
