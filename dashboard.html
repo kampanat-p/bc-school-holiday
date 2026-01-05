@@ -22,6 +22,20 @@
       <h1 class="text-lg font-bold">BC Dashboard</h1>
       <span class="text-xs bg-slate-700 px-2 py-1 rounded" id="dateDisplay">...</span>
     </div>
+    <!-- Absent Summary -->
+    <div class="mt-3 text-xs text-red-200">
+      <div class="flex items-center cursor-pointer" onclick="toggleAbsentList()">
+        <i class="fas fa-user-slash mr-2"></i>
+        <span>Teachers Absent Today: </span>
+        <span id="absentCount" class="ml-2 font-bold text-white bg-red-600 px-2 py-0.5 rounded-full">0</span>
+        <i class="fas fa-chevron-down ml-2 text-[10px]"></i>
+      </div>
+      <!-- Dropdown List -->
+      <div id="absentList" class="hidden mt-2 bg-slate-700 rounded p-2 text-white shadow-lg">
+        <p class="text-[10px] text-gray-400 mb-1">รายชื่อครูที่ลาวันนี้:</p>
+        <ul id="absentUl" class="list-disc list-inside space-y-1"></ul>
+      </div>
+    </div>
   </div>
 
   <!-- Loading / Error Box -->
@@ -96,6 +110,10 @@
         document.getElementById('statusBox').classList.add('hidden');
         document.getElementById('mainContent').classList.remove('hidden');
         
+        // Update Absent Count & List
+        document.getElementById('absentCount').innerText = rawData.absentCount || 0;
+        renderAbsentList(rawData.absentees || []);
+
         setFilterMode('teacher');
         renderCancellations();
 
@@ -191,7 +209,12 @@
                   ${statusBadge}
                 </div>
                 <div class="text-xs text-gray-500 mt-1">🕒 ${s.time}</div>
-                <div class="text-xs text-gray-700 mt-1">👤 ${s.teacher}</div>
+                <div class="text-xs text-gray-700 mt-1 flex items-center">
+                   <span>👤 ${s.teacher}</span>
+                   <span class="ml-1 text-[10px] px-1 rounded border ${s.teacherType === 'Full-time' ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-orange-50 text-orange-600 border-orange-200'}">
+                     ${s.teacherType === 'Full-time' ? 'FT' : 'PT'}
+                   </span>
+                </div>
               </div>
               <div class="text-[10px] text-gray-400 text-right">
                 ${s.coordinator}<br>(Coord)
@@ -224,6 +247,23 @@
             <div class="text-[10px] text-gray-400 mt-1 text-right">โดย: ${c.user}</div>
           </div>`;
       });
+    }
+
+    function renderAbsentList(list) {
+      const ul = document.getElementById('absentUl');
+      ul.innerHTML = "";
+      if (list.length === 0) {
+        ul.innerHTML = "<li class='text-gray-400'>- ไม่มีครูลา -</li>";
+        return;
+      }
+      list.forEach(p => {
+        ul.innerHTML += `<li><span class="font-bold">${p.name}</span> <span class="text-[10px] text-gray-300">(${p.period})</span> <span class="text-[10px] text-orange-300">${p.reason}</span></li>`;
+      });
+    }
+
+    function toggleAbsentList() {
+      const el = document.getElementById('absentList');
+      el.classList.toggle('hidden');
     }
   </script>
 </body>
