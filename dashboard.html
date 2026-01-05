@@ -4,63 +4,42 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>BC Dashboard</title>
-  
-  <!-- CSS & Libraries -->
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-  
-  <!-- Vis Timeline (Load from unpkg) -->
-  <script type="text/javascript" src="https://unpkg.com/vis-timeline@latest/standalone/umd/vis-timeline-graph2d.min.js"></script>
-  <link href="https://unpkg.com/vis-timeline@latest/styles/vis-timeline-graph2d.min.css" rel="stylesheet" type="text/css" />
-
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap');
     body { font-family: 'Sarabun', sans-serif; background-color: #f1f5f9; }
-    
-    .tab-btn { flex:1; py:3; text-align:center; font-size:14px; color:#64748b; border-bottom:3px solid transparent; }
-    .tab-active { border-bottom-color:#16a34a; color:#16a34a; font-weight:bold; }
-    
-    /* Timeline Styles */
-    .vis-item { border-radius: 4px; font-size: 11px; }
-    .vis-item.item-normal { background-color: #dcfce7; border-color: #86efac; color: #166534; }
-    .vis-item.item-cover { background-color: #fef9c3; border-color: #fde047; color: #854d0e; }
-    .vis-item.item-absent { background-color: #fee2e2; border-color: #fca5a5; opacity: 0.5; } /* พื้นหลังคนลา */
-    .vis-label { font-size: 12px; }
+    .tab-active { border-bottom: 3px solid #16a34a; color: #16a34a; font-weight: bold; }
+    .tab-inactive { color: #64748b; }
+    .card { background: white; border-radius: 12px; padding: 15px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
   </style>
 </head>
 <body class="pb-20">
 
   <!-- Header -->
-  <div class="bg-slate-800 text-white p-4 sticky top-0 z-50 shadow-md">
+  <div class="bg-slate-800 text-white p-5 sticky top-0 z-50 shadow-md">
     <div class="flex justify-between items-center">
-      <h1 class="text-lg font-bold"><i class="fas fa-chart-pie mr-2"></i>BC Dashboard</h1>
-      <span class="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300" id="dateDisplay">Loading...</span>
+      <h1 class="text-lg font-bold">BC Dashboard</h1>
+      <span class="text-xs bg-slate-700 px-2 py-1 rounded" id="dateDisplay">...</span>
     </div>
   </div>
 
-  <!-- Loading Box -->
+  <!-- Loading / Error Box -->
   <div id="statusBox" class="p-4 hidden"></div>
 
-  <!-- Tabs Navigation -->
+  <!-- Tabs -->
   <div id="mainContent" class="hidden">
-    <div class="flex bg-white shadow-sm sticky top-14 z-40">
-      <button onclick="switchTab('schedule')" id="tab-schedule" class="tab-btn tab-active">
-        <i class="fas fa-list mr-1"></i> ตาราง
+    <div class="flex bg-white shadow-sm sticky top-16 z-40">
+      <button onclick="switchTab('schedule')" id="tab-schedule" class="flex-1 py-3 text-sm text-center tab-active">
+        ตารางสอนวันนี้
       </button>
-      <button onclick="switchTab('timeline')" id="tab-timeline" class="tab-btn">
-        <i class="fas fa-stream mr-1"></i> Timeline
-      </button>
-      <button onclick="switchTab('absence')" id="tab-absence" class="tab-btn">
-        <i class="fas fa-user-slash mr-1"></i> คนลา
-      </button>
-      <button onclick="switchTab('cancel')" id="tab-cancel" class="tab-btn">
-        <i class="fas fa-history mr-1"></i> Log
+      <button onclick="switchTab('cancel')" id="tab-cancel" class="flex-1 py-3 text-sm text-center tab-inactive">
+        การแจ้งยกเลิก
       </button>
     </div>
 
-    <!-- 1. Schedule View -->
+    <!-- View: Schedule -->
     <div id="view-schedule" class="p-4">
-      <!-- Filter -->
       <div class="bg-white p-3 rounded-lg shadow-sm mb-3">
         <label class="text-xs font-bold text-gray-500">FILTER:</label>
         <div class="flex gap-2 mt-2">
@@ -75,32 +54,18 @@
       <div id="scheduleList" class="space-y-2"></div>
     </div>
 
-    <!-- 2. Timeline View -->
-    <div id="view-timeline" class="hidden p-2 bg-white h-screen">
-      <div id="timeline-container" style="width: 100%; height: 500px;"></div>
-      <p class="text-xs text-center text-gray-400 mt-2">*ใช้นิ้วเลื่อนซ้าย-ขวา / ขยายเข้า-ออกได้</p>
-    </div>
-
-    <!-- 3. Absence View -->
-    <div id="view-absence" class="hidden p-4">
-      <h2 class="text-sm font-bold text-slate-700 mb-3">รายชื่อครูที่ลาวันนี้</h2>
-      <div id="absenceList" class="space-y-3"></div>
-    </div>
-
-    <!-- 4. Cancel Log View -->
-    <div id="view-cancel" class="hidden p-4">
-      <h2 class="text-sm font-bold text-slate-700 mb-3">ประวัติการแจ้งยกเลิก (วันนี้)</h2>
-      <div id="cancelList" class="space-y-3"></div>
+    <!-- View: Cancel -->
+    <div id="view-cancel" class="p-4 hidden">
+      <div id="cancelList" class="space-y-2"></div>
     </div>
   </div>
 
   <script>
-    // ⚙️ ใส่ URL ของ Apps Script
+    // ⚙️ ใส่ URL ของ Apps Script ล่าสุดที่ Deploy
     const GAS_API_URL = "https://script.google.com/macros/s/AKfycby1XtF08bcbNqD98iwOWtDCOwDRz-6xP1b5l4VoJXIo85FcCg9nJvXZXrUkUlh4rxndgQ/exec"; 
 
     let rawData = {};
     let currentFilterMode = 'teacher';
-    let timelineInstance = null;
 
     window.onload = async () => {
       const today = new Date();
@@ -109,25 +74,42 @@
       showStatus("loading", "กำลังดึงข้อมูล... กรุณารอสักครู่");
 
       try {
-        // Fetch Dashboard Data
-        const resDash = await fetch(`${GAS_API_URL}?action=getDashboardData`);
-        const jsonDash = await resDash.json();
-        if (jsonDash.error) throw new Error(jsonDash.message);
-        rawData = jsonDash;
+        const response = await fetch(`${GAS_API_URL}?action=getDashboardData`);
+        const text = await response.text(); // อ่านเป็น Text ก่อนเผื่อ Error HTML
+        
+        let json;
+        try {
+           json = JSON.parse(text);
+        } catch (e) {
+           // ถ้า Parse ไม่ได้ แสดงว่า Server ส่ง HTML Error มา
+           console.error("Server Response:", text);
+           throw new Error("Server Error (HTML): " + extractError(text));
+        }
 
-        // Init Views
+        if (json.error) {
+           throw new Error(json.message);
+        }
+
+        rawData = json;
+        
+        // Success
         document.getElementById('statusBox').classList.add('hidden');
         document.getElementById('mainContent').classList.remove('hidden');
+        
         setFilterMode('teacher');
         renderCancellations();
-        
-        // Lazy Load other tabs data
-        fetchAbsenceData();
 
       } catch (err) {
         showStatus("error", "❌ โหลดไม่ได้: " + err.message);
       }
     };
+
+    function extractError(html) {
+       // พยายามแกะข้อความ Error จาก HTML ของ Google
+       if (html.includes("Google Docs")) return "สิทธิ์เข้าถึงไฟล์ถูกปฏิเสธ (Check File ID/Permissions)";
+       if (html.includes("script")) return "สคริปต์ทำงานผิดพลาด (Check Script Logs)";
+       return html.substring(0, 100) + "..."; // ตัดมาสั้นๆ
+    }
 
     function showStatus(type, msg) {
        const box = document.getElementById('statusBox');
@@ -136,86 +118,17 @@
        box.innerHTML = msg;
     }
 
-    // --- TAB SWITCHER ---
+    // --- Filter & Render Logic (เหมือนเดิม) ---
     function switchTab(tab) {
-      // Hide all
-      ['schedule', 'timeline', 'absence', 'cancel'].forEach(t => {
-        document.getElementById('view-' + t).classList.add('hidden');
-        document.getElementById('tab-' + t).classList.remove('tab-active');
-      });
-      
-      // Show selected
+      document.getElementById('view-schedule').classList.add('hidden');
+      document.getElementById('view-cancel').classList.add('hidden');
+      document.getElementById('tab-schedule').className = "flex-1 py-3 text-sm text-center tab-inactive text-gray-400";
+      document.getElementById('tab-cancel').className = "flex-1 py-3 text-sm text-center tab-inactive text-gray-400";
+
       document.getElementById('view-' + tab).classList.remove('hidden');
-      document.getElementById('tab-' + tab).classList.add('tab-active');
-
-      // Specific Logic
-      if (tab === 'timeline' && !timelineInstance) {
-         fetchTimelineData();
-      }
+      document.getElementById('tab-' + tab).className = "flex-1 py-3 text-sm text-center tab-active border-b-2 border-green-600 text-green-700 font-bold";
     }
 
-    // --- TIMELINE LOGIC ---
-    async function fetchTimelineData() {
-        document.getElementById('timeline-container').innerHTML = '<div class="text-center pt-20 text-gray-400">Loading Timeline...</div>';
-        try {
-            const res = await fetch(`${GAS_API_URL}?action=getTimelineData`);
-            const data = await res.json();
-            renderTimeline(data);
-        } catch(e) {
-            document.getElementById('timeline-container').innerHTML = 'Error loading timeline';
-        }
-    }
-
-    function renderTimeline(data) {
-        document.getElementById('timeline-container').innerHTML = '';
-        const container = document.getElementById('timeline-container');
-        
-        const groups = new vis.DataSet(data.groups);
-        const items = new vis.DataSet(data.items);
-        
-        const options = {
-            stack: false,
-            start: new Date(data.date + 'T07:00:00'),
-            end: new Date(data.date + 'T17:00:00'),
-            editable: false,
-            orientation: 'top',
-            zoomMin: 1000 * 60 * 60, // 1 hour
-            zoomMax: 1000 * 60 * 60 * 12, // 12 hours
-            verticalScroll: true,
-            height: '100%',
-            groupHeightMode: 'fixed'
-        };
-
-        timelineInstance = new vis.Timeline(container, items, groups, options);
-    }
-
-    // --- ABSENCE LOGIC ---
-    async function fetchAbsenceData() {
-        try {
-            const res = await fetch(`${GAS_API_URL}?action=getAbsenceData`);
-            const data = await res.json();
-            const list = document.getElementById('absenceList');
-            list.innerHTML = "";
-            
-            if(data.length === 0) {
-                list.innerHTML = `<div class="text-center py-10 text-gray-400">วันนี้ไม่มีครูลา</div>`;
-                return;
-            }
-
-            data.forEach(a => {
-                list.innerHTML += `
-                  <div class="bg-white border-l-4 border-red-400 p-3 rounded shadow-sm flex justify-between items-center">
-                    <div>
-                        <div class="font-bold text-gray-800">${a.name} <span class="text-xs text-gray-500 font-normal">(${a.type})</span></div>
-                        <div class="text-xs text-red-500 mt-1">${a.reason}</div>
-                    </div>
-                    <div class="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-600">${a.period}</div>
-                  </div>`;
-            });
-        } catch(e) { console.error(e); }
-    }
-
-    // --- SCHEDULE & FILTER LOGIC ---
     function setFilterMode(mode) {
       currentFilterMode = mode;
       ['teacher', 'school', 'coord'].forEach(m => {
@@ -253,6 +166,8 @@
         if (currentFilterMode === 'coord') return s.coordinator === val;
       });
 
+      document.getElementById('dateDisplay').innerText = `${filtered.length} คาบ`;
+
       if (filtered.length === 0) {
         list.innerHTML = `<div class="text-center py-10 text-gray-400">ไม่พบข้อมูล</div>`;
         return;
@@ -266,13 +181,8 @@
         if(isCover) statusBadge = `<span class="bg-yellow-100 text-yellow-800 text-[10px] px-1 rounded ml-1">Sub</span>`;
         if(isCancel) statusBadge = `<span class="bg-red-100 text-red-800 text-[10px] px-1 rounded ml-1">Cancel</span>`;
 
-        // Teacher Type Badge
-        let typeBadge = "";
-        if(s.teacherType === "Full-time") typeBadge = `<span class="text-[9px] bg-blue-100 text-blue-700 px-1 rounded ml-1 font-bold">FT</span>`;
-        else if(s.teacherType === "Part-time") typeBadge = `<span class="text-[9px] bg-orange-100 text-orange-700 px-1 rounded ml-1 font-bold">PT</span>`;
-
         const html = `
-          <div class="bg-white p-3 rounded-lg shadow-sm border border-gray-100 mb-2 ${isCancel ? 'opacity-60 bg-gray-50' : ''}">
+          <div class="card bg-white p-3 rounded-lg shadow-sm border border-gray-100 ${isCancel ? 'opacity-60 bg-gray-50' : ''}">
             <div class="flex justify-between items-start">
               <div>
                 <div class="flex items-center">
@@ -281,9 +191,7 @@
                   ${statusBadge}
                 </div>
                 <div class="text-xs text-gray-500 mt-1">🕒 ${s.time}</div>
-                <div class="text-xs text-gray-700 mt-1 flex items-center">
-                   👤 ${s.teacher} ${typeBadge}
-                </div>
+                <div class="text-xs text-gray-700 mt-1">👤 ${s.teacher}</div>
               </div>
               <div class="text-[10px] text-gray-400 text-right">
                 ${s.coordinator}<br>(Coord)
