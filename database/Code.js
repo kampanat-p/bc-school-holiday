@@ -192,6 +192,25 @@ function getCoordinatorMap(ss) {
 }
 
 function getAbsenceData(ss, userMap) {
+  // --- TRY CACHE FIRST ---
+  const cacheSheet = ss.getSheetByName('cache_today_unavailability');
+  if (cacheSheet && cacheSheet.getLastRow() > 1) {
+    const data = cacheSheet.getDataRange().getValues();
+    const absentees = [];
+    // 0:tid, 1:name, 2:type, 3:period, 4:reason
+    for (let i = 1; i < data.length; i++) {
+      absentees.push({
+        name: data[i][1],
+        type: data[i][2],
+        period: data[i][3],
+        reason: data[i][4],
+        impacts: [] // Cache doesn't store impacts logic yet, simple view is fine
+      });
+    }
+    return absentees;
+  }
+
+  // --- FALLBACK TO SLOW READ (If Cache Missing) ---
   const sh = ss.getSheetByName('fact_teacher_unavailability');
   if (!sh) return [];
   
@@ -223,9 +242,6 @@ function getAbsenceData(ss, userMap) {
          if (tStart && tEnd) timeStr = `${tStart} - ${tEnd}`;
          else timeStr = "All Day";
 
-         // Mock impacts for now (Could be complex to calculate impact unless we reuse cache)
-         // For dashboard simple view, empty impacts is fine, frontend handles it.
-         
          absentees.push({
            name: tInfo.name,
            type: tInfo.type,

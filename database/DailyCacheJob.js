@@ -4,6 +4,7 @@
  */
 
 const CACHE_SHEET_NAME = "cache_today_session";
+const CACHE_UA_SHEET_NAME = "cache_today_unavailability";
 
 function createDailyCache() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -12,7 +13,7 @@ function createDailyCache() {
   var userMap = getUserMap(ss);
   var schoolMap = getSchoolMap(ss);
   
-  // 2. ดึงข้อมูล Session ทั้งหมด
+  // --- PART A: SESSION CACHE (Existing) ---
   var sessionSheet = ss.getSheetByName("fact_daily_session");
   
   // *** แก้ไขจุดที่ 1: ดึงทั้ง Values (เพื่อคำนวณ) และ DisplayValues (เพื่อเอาเวลาที่ถูกต้อง) ***
@@ -21,7 +22,8 @@ function createDailyCache() {
   var sessionDisplayData = range.getDisplayValues(); // เอาไว้ดึงเวลา (String "HH:mm")
   
   // 3. กรองเฉพาะวันนี้
-  var todayStr = getThaiDateString(new Date()); 
+  var todayDate = new Date();
+  var todayStr = getThaiDateString(todayDate); 
   // var todayStr = "2025-12-25"; // สำหรับ Test
   
   var cachedRows = [];
@@ -73,14 +75,12 @@ function createDailyCache() {
     }
   }
   
-  // 4. บันทึกลงชีท Cache
+  // 4. บันทึกลงชีท Cache Session
   var cacheSheet = ss.getSheetByName(CACHE_SHEET_NAME);
   if (!cacheSheet) {
     cacheSheet = ss.insertSheet(CACHE_SHEET_NAME);
   }
-  
   cacheSheet.clear(); 
-  
   cacheSheet.appendRow([
     "session_id", "school_code", "class_name", "time_slot", 
     "actual_teacher_name", "actual_teacher_type", 
@@ -89,15 +89,71 @@ function createDailyCache() {
   ]);
   
   if (cachedRows.length > 0) {
-    // จัด Format เป็น Plain Text ก่อนวาง เพื่อกัน Google Sheet พยายามแปลงกลับเป็นเวลาแล้วเพี้ยนอีก
     var range = cacheSheet.getRange(2, 1, cachedRows.length, cachedRows[0].length);
-    range.setNumberFormat("@"); // @ = Plain Text
+    range.setNumberFormat("@"); 
     range.setValues(cachedRows);
   }
   
-  cacheSheet.getRange("Z1").setValue("Updated: " + new Date());
-  Logger.log("Cache updated for " + todayStr + ": " + cachedRows.length + " sessions.");
+  // --- PART B: UNAVAILABILITY CACHE (New) ---
+  createUnavailabilityCache(ss, userMap, todayStr);
+  
+  Logger.log("Cache updated for " + todayStr);
 }
+
+function createUnavailabilityCache(ss, userMap, todayStr) {
+  var uaSheet = ss.getSheetByName("fact_teacher_unavailability");
+  if (!uaSheet) return;
+
+  var uaData = uaSheet.getDataRange().getValues();
+  var uaDisp = uaSheet.getDataRange().getDisplayValues(); // Get times as string
+
+  var uaCached = [];
+  var processed = new Set();
+  
+  // 0:uid, 1:tid, 2:startDate, 3:endDate, 4:startTime, 5:endTime, 6:remark
+  for (var i = 1; i < uaData.length; i++) {
+     let sDate = formatDateStandard(uaData[i][2]);
+     let eDate = formatDateStandard(uaData[i][3]);
+     
+     // Check Overlap with Today
+     if (sDate <= todayStr && eDate >= todayStr) {
+        let tid = String(uaData[i][1]);
+        
+        let uniqueKey = tid + "_" + uaData[i][6]; 
+        
+        if (!processed.has(uniqueKey)) {
+           let tInfo = userMap[tid] || { name: tid, type: "Unknown" };
+           
+           let tStart = uaDisp[i][4] ? uaDisp[i][4].substring(0,5) : "";
+           let tEnd = uaDisp[i][5] ? uaDisp[i][5].substring(0,5) : "";
+           let timeStr = (tStart && tEnd) ? tStart + " - " + tEnd : "All Day";
+
+           uaCached.push([
+             tid,
+             tInfo.name,
+             tInfo.type,
+             timeStr,
+             uaData[i][6] // Reason
+           ]);
+           processed.add(uniqueKey);
+        }
+     }
+  }
+  
+  var uaCacheSheet = ss.getSheetByName(CACHE_UA_SHEET_NAME);
+  if (!uaCacheSheet) {
+    uaCacheSheet = ss.insertSheet(CACHE_UA_SHEET_NAME);
+  }
+  uaCacheSheet.clear();
+  uaCacheSheet.appendRow(["tid", "name", "type", "period", "reason"]);
+  
+  if (uaCached.length > 0) {
+    var r = uaCacheSheet.getRange(2, 1, uaCached.length, uaCached[0].length);
+    r.setNumberFormat("@");
+    r.setValues(uaCached);
+  }
+}
+
 
 // --- Helper Functions ---
 
