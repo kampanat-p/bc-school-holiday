@@ -181,36 +181,67 @@ function getAbsenceData(dateStr) {
   if(!uaSheet) return [];
 
   const userMap = getUserMap(ss);
-  const rawUA = uaSheet.getDataRange().getValues();
+  
+  // Use raw values for logic and display values for time formatting
+  const range = uaSheet.getDataRange();
+  const rawUA = range.getValues();
+  const dispUA = range.getDisplayValues();
+
   const targetDate = dateStr ? dateStr : Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
   
   // ดึงตารางสอนวันนี้เพื่อเช็ค Impact
   const cacheSheet = ss.getSheetByName(CONFIG.SHEET_NAME_CACHE);
   const rawCache = cacheSheet ? cacheSheet.getDataRange().getValues() : [];
   
-  const absentees = [];
+  // Group by Teacher Name to ensure uniqueness
+  const absenteeMap = new Map();
 
   for(let i=1; i<rawUA.length; i++) {
-    let row = rawUA[i];
-    let sDate = formatDateStandard(row[2]);
-    let eDate = formatDateStandard(row[3]);
+    // Check Date using raw Values (Date Objects should be handled by formatDateStandard)
+    let sDate = formatDateStandard(rawUA[i][2]);
+    let eDate = formatDateStandard(rawUA[i][3]);
     
     if (sDate <= targetDate && eDate >= targetDate) {
-       let tId = row[1];
+       let tId = rawUA[i][1];
        let teacher = userMap[tId] || { name: tId, type: "-" };
+       let tName = teacher.name;
        
-       let startTime = formatTimeOnly(row[4]);
-       let endTime = formatTimeOnly(row[5]);
+       // Use Display Values for Time to avoid 1899-epoch/timezone shifts
+       // dispUA index matches rawUA index
+       let startTime = normalizeTimeStr(dispUA[i][4]);
+       let endTime = normalizeTimeStr(dispUA[i][5]);
+       let reason = rawUA[i][6];
 
-       // หา Impact (คาบที่ได้รับผลกระทบ)
+       if (!absenteeMap.has(tName)) {
+         absenteeMap.set(tName, {
+            name: tName,
+            type: teacher.type,
+            periods: [],
+            reasons: new Set()
+         });
+       }
+
+       let entry = absenteeMap.get(tName);
+       // Add unique period string
+       let periodStr = `${startTime} - ${endTime}`;
+       if (!entry.periods.includes(periodStr)) {
+          entry.periods.push(periodStr);
+       }
+       if (reason) entry.reasons.add(reason);
+    }
+  }
+
+  // Build final list with Impacts
+  const absentees = [];
+  
+  for (const [name, data] of absenteeMap) {
+      // Find Impacts (Once per teacher)
        let impacts = [];
        for(let j=1; j<rawCache.length; j++) {
           let cRow = rawCache[j];
           // cRow: 4=TeacherName, 6=OriginalTeacher
           // เช็คว่าคาบนี้เดิมเป็นของครูคนนี้หรือไม่
-          if (cRow[6] === teacher.name || (cRow[4] === teacher.name && cRow[8] !== 'Cover')) {
-             // เช็คเวลาว่าชนกับช่วงลาไหม (แบบง่าย: เช็คแค่ชื่อครูในวันนั้นก่อน)
-             // ถ้าจะเอาละเอียดต้องเทียบเวลา start-end แต่เบื้องต้นเอาแค่รายชื่อวิชาที่สอนวันนี้
+          if (cRow[6] === name || (cRow[4] === name && cRow[8] !== 'Cover')) {
              impacts.push({
                time: cRow[3],
                school: cRow[1],
@@ -222,14 +253,14 @@ function getAbsenceData(dateStr) {
        }
 
        absentees.push({
-         name: teacher.name,
-         type: teacher.type,
-         period: `${startTime} - ${endTime}`,
-         reason: row[6],
+         name: data.name,
+         type: data.type,
+         period: data.periods.join(", "), // Join multiple periods if any
+         reason: Array.from(data.reasons).join(", "),
          impacts: impacts
        });
-    }
   }
+  
   return absentees;
 }
 
