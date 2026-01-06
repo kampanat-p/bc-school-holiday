@@ -117,9 +117,10 @@
       showStatus("loading", "กำลังดึงข้อมูล... กรุณารอสักครู่");
 
       try {
-        const response = await fetch(`${GAS_API_URL}?action=getDashboardData`, {
+        const response = await fetch(`${GAS_API_URL}?action=getDashboardData&t=${new Date().getTime()}`, {
           method: 'GET',
           mode: 'cors',
+          credentials: 'omit', // Explicitly deny cookies to ensure anonymous access
           redirect: 'follow'
         });
         const text = await response.text(); // อ่านเป็น Text ก่อนเผื่อ Error HTML
