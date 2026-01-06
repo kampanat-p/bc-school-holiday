@@ -34,6 +34,26 @@
         <i class="fas fa-chevron-right ml-2 text-[10px]"></i>
       </div>
     </div>
+    
+    <!-- Metrics Summary -->
+    <div class="grid grid-cols-4 gap-2 mt-2 text-[10px] text-center">
+      <div class="bg-slate-700 p-1 rounded">
+         <div class="text-slate-400">Total</div>
+         <div class="font-bold text-white text-xs" id="met-total">0</div>
+      </div>
+      <div class="bg-slate-700 p-1 rounded">
+         <div class="text-green-400">Covered</div>
+         <div class="font-bold text-white text-xs" id="met-cover">0</div>
+      </div>
+      <div class="bg-slate-700 p-1 rounded">
+         <div class="text-red-400">Can(BC)</div>
+         <div class="font-bold text-white text-xs" id="met-bc">0</div>
+      </div>
+      <div class="bg-slate-700 p-1 rounded">
+         <div class="text-orange-400">Can(Sch)</div>
+         <div class="font-bold text-white text-xs" id="met-sch">0</div>
+      </div>
+    </div>
   </div>
 
   <!-- Absent Modal (Full Screen) -->
@@ -153,6 +173,14 @@
         document.getElementById('countFT').innerText = ftCount;
         document.getElementById('countPT').innerText = ptCount;
         
+        // Update Metrics
+        if (rawData.metrics) {
+            document.getElementById('met-total').innerText = rawData.metrics.total;
+            document.getElementById('met-cover').innerText = rawData.metrics.covered;
+            document.getElementById('met-bc').innerText = rawData.metrics.cancelBC;
+            document.getElementById('met-sch').innerText = rawData.metrics.cancelSchool;
+        }
+
         renderAbsentList(absentees);
 
         setFilterMode('teacher');

@@ -41,53 +41,66 @@ function getDashboardData(e) {
     let schoolSet = new Set();
     let coordSet = new Set();
     
+    // Metrics
+    let metrics = {
+      total: 0,
+      cancelBC: 0,
+      cancelSchool: 0,
+      covered: 0
+    };
+
     // -----------------------------------------------------------------
     // STRATEGY: Prefer Cache for speed
     // -----------------------------------------------------------------
     const cacheSheet = ss.getSheetByName('cache_today_session');
     const useCache = (cacheSheet && cacheSheet.getLastRow() > 1);
     
-    // Impact Map: Key = Teacher Name, Value = Array of their scheduled classes
+    // Impact Map
     let impactMap = {}; 
 
     // --- MODE 1: FAST (Read from Cache) ---
     if (useCache) {
-      // Columns: 0:id, 1:school_code, 2:class, 3:time, 4:act_teach_name, 5:act_type, 6:orig_name, 7:orig_type, 8:status, 9:school_id
       const data = cacheSheet.getDataRange().getValues(); 
+      // 0:id, 1:school_code, 2:class, 3:time, 4:act_teach_name, 5:act_type, 6:orig_name, 7:orig_type, 8:status, 9:school_id
       
       for (let i = 1; i < data.length; i++) {
         const row = data[i];
         if (!row[0]) continue;
         
-        const schoolCode = row[1];
+        const schoolCode = String(row[1]); // FORCE STRING to prevent "SAT" -> Date issues
         const sCoord = coordinatorMap[schoolCode] || "Unassigned";
         
-        const tName = row[4]; // Actual Teacher
+        const tName = row[4]; 
         const tType = row[5]; 
-        const origName = row[6]; // Original Teacher
-        const status = row[8];
+        const origName = row[6]; 
+        const status = String(row[8]);
         const timeSlot = String(row[3]); 
         
-        // [UPDATE] Parse Time Slot
-        let timeParts = timeSlot.split('-').map(s => s.trim());
         let displayTime = timeSlot; 
 
-        // Collect Impact (If this session originally belonged to someone else)
+        // Collect Impact
         if (origName && origName !== "-" && origName !== "Unknown") {
             if (!impactMap[origName]) impactMap[origName] = [];
             impactMap[origName].push({
                 time: displayTime,
                 school: schoolCode,
-                className: row[2], // Class Name
+                className: row[2], 
                 status: status,
                 actualTeacher: tName
             });
         }
 
-        if (status.startsWith("Cancelled")) {
-           // Skip main list, relying on external file for cancellation list
-        } else {
-           sessions.push({
+        // Metrics & Inclusion
+        metrics.total++;
+        if (status.includes("Cancel")) {
+            if (status.toLowerCase().includes("bc")) metrics.cancelBC++;
+            else metrics.cancelSchool++; // Default to School if not BC (or explicitly School)
+        } else if (status === "Substituted" || status === "Cover") {
+            metrics.covered++;
+        }
+
+        // ALWAYS Push to sessions (User wants to see cancelled classes too)
+        sessions.push({
              id: row[0],
              time: displayTime, 
              school: schoolCode,
@@ -96,12 +109,11 @@ function getDashboardData(e) {
              teacherType: tType,
              coordinator: sCoord,
              status: status
-           });
-           
-           teacherSet.add(tName);
-           schoolSet.add(schoolCode);
-           coordSet.add(sCoord);
-        }
+        });
+        
+        teacherSet.add(tName);
+        schoolSet.add(schoolCode);
+        coordSet.add(sCoord);
       }
     } 
     // --- MODE 2: SLOW (Fallback) ---
@@ -121,7 +133,7 @@ function getDashboardData(e) {
           
           if (rowDate === todayStr) {
             const teachId = String(row[6]);
-            const origId = String(row[7]); // Original Teacher ID
+            const origId = String(row[7]); 
             const schoolId = String(row[5]); 
             
             const tName = userMap[teachId] ? userMap[teachId].name : teachId;
@@ -132,7 +144,8 @@ function getDashboardData(e) {
                 origName = userMap[origId] ? userMap[origId].name : origId;
             }
             
-            const sCode = schoolMap[schoolId] ? schoolMap[schoolId].name : schoolId; 
+            const sCodeRaw = schoolMap[schoolId] ? schoolMap[schoolId].name : schoolId; 
+            const sCode = String(sCodeRaw); // FORCE STRING
             const sCoord = coordinatorMap[sCode] || "Unassigned"; 
             
             const tStart = dispData[i][2].substring(0,5);
@@ -140,33 +153,27 @@ function getDashboardData(e) {
             const displayTime = `${tStart} - ${tEnd}`;
             const status = String(row[8]);
             
-            // Collect Impact
             if (origName && origName !== "-" && origName !== "Unknown") {
                 if (!impactMap[origName]) impactMap[origName] = [];
-                impactMap[origName].push({
-                    time: displayTime,
-                    school: sCode,
-                    className: row[4], // Class
-                    status: status,
-                    actualTeacher: tName
-                });
+                impactMap[origName].push({ time: displayTime, school: sCode, className: row[4], status: status, actualTeacher: tName });
             }
 
-            if (!status.startsWith("Cancelled")) {
-               sessions.push({
-                 id: row[0],
-                 time: displayTime,
-                 school: sCode,
-                 class: row[4],
-                 teacher: tName,
-                 teacherType: tType,
-                 coordinator: sCoord,
-                 status: status
-               });
-               teacherSet.add(tName);
-               schoolSet.add(sCode);
-               coordSet.add(sCoord);
+            // Metrics
+            metrics.total++;
+            if (status.includes("Cancel")) {
+                if (status.toLowerCase().includes("bc")) metrics.cancelBC++;
+                else metrics.cancelSchool++;
+            } else if (status === "Substituted" || status === "Cover") {
+                metrics.covered++;
             }
+
+            sessions.push({
+                 id: row[0], time: displayTime, school: sCode, class: row[4],
+                 teacher: tName, teacherType: tType, coordinator: sCoord, status: status
+            });
+            teacherSet.add(tName);
+            schoolSet.add(sCode);
+            coordSet.add(sCoord);
           }
         }
       }
@@ -176,12 +183,12 @@ function getDashboardData(e) {
     sessions.sort((a,b) => a.time.localeCompare(b.time));
 
     // -----------------------------------------------------------------
-    // NEW FETCHERS: Unavailability & Cancellations
+    // NEW FETCHERS
     // -----------------------------------------------------------------
     const userMapForUA = getUserMap(ss); 
     const absences = getAbsenceData(ss, userMapForUA); 
     
-    // [UPDATE] Inject Impacts into Absences
+    // Inject Impacts
     absences.forEach(a => {
         if (impactMap[a.name]) {
             a.impacts = impactMap[a.name];
@@ -193,14 +200,15 @@ function getDashboardData(e) {
 
     const result = {
       absentCount: absences.length,
-      absentees: absences, 
+      absentees: absences,
+      metrics: metrics, // New Metrics
       filters: {
         teachers: Array.from(teacherSet).sort(),
         schools: Array.from(schoolSet).sort(),
         coordinators: Array.from(coordSet).sort()
       },
       sessions: sessions,
-      cancellations: holidays, // Use external file for rich cancellation info
+      cancellations: holidays, 
       source: useCache ? "Cache" : "Live" 
     };
 
