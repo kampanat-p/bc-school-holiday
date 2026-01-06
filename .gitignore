@@ -1,0 +1,10 @@
+# Ignore Clasp settings
+.clasp.json
+.google/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Node modules (ถ้ามี)
+node_modules/
