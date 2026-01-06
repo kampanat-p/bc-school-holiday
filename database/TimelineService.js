@@ -1,7 +1,7 @@
 /**
  * ส่วนที่ 1: เตรียมหน้าเว็บ (HTML)
  */
-function doGet(e) {
+function timelineView(e) {
   return HtmlService.createTemplateFromFile('TimelineView')
       .evaluate()
       .setTitle('Braincloud Master Timetable')
