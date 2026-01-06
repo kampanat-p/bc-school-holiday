@@ -56,6 +56,7 @@ function createDailyCache() {
       // Index 2 = Start Time, Index 3 = End Time
       var startTimeRaw = sessionDisplayData[i][2]; 
       var endTimeRaw = sessionDisplayData[i][3];
+      var classNameRaw = sessionDisplayData[i][4]; // Use DisplayValue for Class Name to avoid Date conversion
       
       // ตัด string ให้เหลือแค่ HH:mm (เผื่อ Excel มีวินาทีติดมา)
       var timeSlot = cleanTimeStr(startTimeRaw) + " - " + cleanTimeStr(endTimeRaw);
@@ -63,7 +64,7 @@ function createDailyCache() {
       cachedRows.push([
         row[0], // session_id
         schoolCode,
-        row[4], // class_name
+        classNameRaw, // class_name (String)
         timeSlot, // time_slot (String แท้ๆ ไม่เพี้ยน)
         actualInfo.name,
         actualInfo.type,

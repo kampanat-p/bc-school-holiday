@@ -84,7 +84,7 @@ function getDashboardData(e) {
             impactMap[origName].push({
                 time: displayTime,
                 school: schoolCode,
-                className: row[2], 
+                className: String(row[2]), 
                 status: status,
                 actualTeacher: tName
             });
@@ -104,7 +104,7 @@ function getDashboardData(e) {
              id: row[0],
              time: displayTime, 
              school: schoolCode,
-             class: row[2],
+             class: String(row[2]),
              teacher: tName,
              teacherType: tType,
              coordinator: sCoord,
@@ -153,9 +153,11 @@ function getDashboardData(e) {
             const displayTime = `${tStart} - ${tEnd}`;
             const status = String(row[8]);
             
+            const className = dispData[i][4]; // Use Display Value for Class Name
+
             if (origName && origName !== "-" && origName !== "Unknown") {
                 if (!impactMap[origName]) impactMap[origName] = [];
-                impactMap[origName].push({ time: displayTime, school: sCode, className: row[4], status: status, actualTeacher: tName });
+                impactMap[origName].push({ time: displayTime, school: sCode, className: className, status: status, actualTeacher: tName });
             }
 
             // Metrics
@@ -168,7 +170,7 @@ function getDashboardData(e) {
             }
 
             sessions.push({
-                 id: row[0], time: displayTime, school: sCode, class: row[4],
+                 id: row[0], time: displayTime, school: sCode, class: className,
                  teacher: tName, teacherType: tType, coordinator: sCoord, status: status
             });
             teacherSet.add(tName);
