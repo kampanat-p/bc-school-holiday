@@ -8,3 +8,8 @@ Thumbs.db
 
 # Node modules (ถ้ามี)
 node_modules/
+
+# Backend Folders (Ignore copies in frontend repo)
+database/
+line/
+New folder/
