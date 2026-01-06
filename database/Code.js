@@ -47,35 +47,49 @@ function getDashboardData(e) {
     const cacheSheet = ss.getSheetByName('cache_today_session');
     const useCache = (cacheSheet && cacheSheet.getLastRow() > 1);
     
+    // Impact Map: Key = Teacher Name, Value = Array of their scheduled classes
+    let impactMap = {}; 
+
     // --- MODE 1: FAST (Read from Cache) ---
     if (useCache) {
       // Columns: 0:id, 1:school_code, 2:class, 3:time, 4:act_teach_name, 5:act_type, 6:orig_name, 7:orig_type, 8:status, 9:school_id
-      const data = cacheSheet.getDataRange().getValues(); // Get raw values
+      const data = cacheSheet.getDataRange().getValues(); 
       
       for (let i = 1; i < data.length; i++) {
         const row = data[i];
         if (!row[0]) continue;
         
-        const schoolCode = row[1]; // Using Code from cache directly
-        const sCoord = coordinatorMap[schoolCode] || "Unassigned"; // Lookup Coord by Code
+        const schoolCode = row[1];
+        const sCoord = coordinatorMap[schoolCode] || "Unassigned";
         
-        const tName = row[4]; 
+        const tName = row[4]; // Actual Teacher
         const tType = row[5]; 
+        const origName = row[6]; // Original Teacher
         const status = row[8];
-        const timeSlot = String(row[3]); // "08:30 - 09:20"
+        const timeSlot = String(row[3]); 
         
-        // [UPDATE] Parse Time Slot correctly to show Start & End separately if needed
+        // [UPDATE] Parse Time Slot
         let timeParts = timeSlot.split('-').map(s => s.trim());
-        let startTime = timeParts[0] || "";
-        // We keep the full time string for display if desired, or just start
         let displayTime = timeSlot; 
 
+        // Collect Impact (If this session originally belonged to someone else)
+        if (origName && origName !== "-" && origName !== "Unknown") {
+            if (!impactMap[origName]) impactMap[origName] = [];
+            impactMap[origName].push({
+                time: displayTime,
+                school: schoolCode,
+                className: row[2], // Class Name
+                status: status,
+                actualTeacher: tName
+            });
+        }
+
         if (status.startsWith("Cancelled")) {
-           // Skip here, we will fetch Cancellations from Holiday File for better details
+           // Skip main list, relying on external file for cancellation list
         } else {
            sessions.push({
              id: row[0],
-             time: displayTime, // Show "Start - End"
+             time: displayTime, 
              school: schoolCode,
              class: row[2],
              teacher: tName,
@@ -99,7 +113,7 @@ function getDashboardData(e) {
   
       if (sheet) {
         const data = sheet.getDataRange().getValues();
-        const dispData = sheet.getDataRange().getDisplayValues(); // For safer time reading
+        const dispData = sheet.getDataRange().getDisplayValues();
         
         for (let i = 1; i < data.length; i++) {
           const row = data[i];
@@ -107,21 +121,37 @@ function getDashboardData(e) {
           
           if (rowDate === todayStr) {
             const teachId = String(row[6]);
-            const schoolId = String(row[5]); // SC-XXXX
+            const origId = String(row[7]); // Original Teacher ID
+            const schoolId = String(row[5]); 
             
             const tName = userMap[teachId] ? userMap[teachId].name : teachId;
             const tType = userMap[teachId] ? userMap[teachId].type : "Unknown";
             
-            const sCode = schoolMap[schoolId] ? schoolMap[schoolId].name : schoolId; 
-            const sCoord = coordinatorMap[sCode] || "Unassigned"; // Lookup by School Code
+            let origName = "-";
+            if (origId && origId !== teachId) {
+                origName = userMap[origId] ? userMap[origId].name : origId;
+            }
             
-            // [UPDATE] Construct Start - End Time
+            const sCode = schoolMap[schoolId] ? schoolMap[schoolId].name : schoolId; 
+            const sCoord = coordinatorMap[sCode] || "Unassigned"; 
+            
             const tStart = dispData[i][2].substring(0,5);
             const tEnd = dispData[i][3].substring(0,5);
             const displayTime = `${tStart} - ${tEnd}`;
-            
             const status = String(row[8]);
             
+            // Collect Impact
+            if (origName && origName !== "-" && origName !== "Unknown") {
+                if (!impactMap[origName]) impactMap[origName] = [];
+                impactMap[origName].push({
+                    time: displayTime,
+                    school: sCode,
+                    className: row[4], // Class
+                    status: status,
+                    actualTeacher: tName
+                });
+            }
+
             if (!status.startsWith("Cancelled")) {
                sessions.push({
                  id: row[0],
@@ -148,9 +178,18 @@ function getDashboardData(e) {
     // -----------------------------------------------------------------
     // NEW FETCHERS: Unavailability & Cancellations
     // -----------------------------------------------------------------
-    const userMapForUA = getUserMap(ss); // Need for absences logic
-    const absences = getAbsenceData(ss, userMapForUA); // New logic
-    const holidays = getHolidayLogCancellations(); // New logic
+    const userMapForUA = getUserMap(ss); 
+    const absences = getAbsenceData(ss, userMapForUA); 
+    
+    // [UPDATE] Inject Impacts into Absences
+    absences.forEach(a => {
+        if (impactMap[a.name]) {
+            a.impacts = impactMap[a.name];
+            a.impacts.sort((x,y) => x.time.localeCompare(y.time));
+        }
+    });
+
+    const holidays = getHolidayLogCancellations(); 
 
     const result = {
       absentCount: absences.length,
