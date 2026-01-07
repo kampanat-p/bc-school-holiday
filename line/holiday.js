@@ -317,6 +317,7 @@ function normalizeTimeStr(timeStr) {
  */
 
 function getDashboardData() {
+  const todayStr = formatDateStandard(new Date()); // Define todayStr
   const ss = SpreadsheetApp.openById(CONFIG.CENTRAL_DB_ID);
   
   // 1. Cache Sheet
@@ -355,40 +356,121 @@ function getDashboardData() {
     if(coord) coords.add(coord);
   }
 
-  // Cancellations
-  const pendingSheet = ss.getSheetByName(CONFIG.SHEET_NAME_DESTINATION);
-  const cancellations = [];
-  const todayStr = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
+    // Cancellations - Now fetches ALL active cancellations (multi-day included)
+    // Replaces the old logic that only checked 'Pending_Approval' for strictly today's submissions
+    const cancels = getActiveCancellations(todayStr, rawCache);
 
-  if (pendingSheet) {
-    const rawPending = pendingSheet.getDataRange().getValues();
-    for(let i=1; i<rawPending.length; i++) {
-      let row = rawPending[i];
-      let pDate = String(row[4]).replace(/'/g, "");
-      if(pDate === todayStr) {
-        cancellations.push({
-          ticket: row[0], school: row[3], type: row[6],
-          reason: row[8], user: row[2], time: row[1]
-        });
+    // Get Absence Data (Reuse existing function)
+    const absentees = getAbsenceData(todayStr);
+
+    return {
+      sessions: sessions,
+      filters: {
+        teachers: Array.from(teachers).sort(),
+        schools: Array.from(schools).sort(),
+        coordinators: Array.from(coords).sort()
+      },
+      cancellations: cancels,
+      absentCount: absentees.length,
+      absentees: absentees // ส่งรายชื่อคนลาไปด้วย
+    };
+  }
+
+  // --- Helper: Get Active Cancellations from Holiday Log ---
+  function getActiveCancellations(todayStr, rawCache) {
+    try {
+      const ss = SpreadsheetApp.openById(CONFIG.HOLIDAY_DB_ID);
+      const sheet = ss.getSheetByName(CONFIG.SHEET_NAME_HOLIDAY_LOG);
+      if(!sheet) return [];
+
+      // Build Cache Map for Quick Lookup (ID -> {time, class, teacher})
+      const cacheMap = new Map();
+      if(rawCache && rawCache.length > 0) {
+         // Start from 1 to skip header, but check if row exists
+         for(let i=1; i<rawCache.length; i++) {
+           let r = rawCache[i];
+           if(r && r.length > 4) { // Ensure row has enough columns
+              // Key should be trimmed string to match CSV
+              let key = String(r[0]).trim();
+              cacheMap.set(key, { 
+                  time: r[3], 
+                  className: r[2], 
+                  teacher: r[4] 
+              });
+           }
+         }
       }
+
+      const data = sheet.getDataRange().getValues(); // 0:Ticket, 3:School, 4:Start, 5:End, 6:Type, 7:SessIDs, 8:Reason, 2:User, 1:Time
+      const results = [];
+
+      for(let i=1; i<data.length; i++) {
+        let row = data[i];
+        let sDate = normalizeDate(row[4]); // Start
+        let eDate = normalizeDate(row[5]); // End
+
+        // Check if today is within range [Start, End]
+        if (sDate <= todayStr && eDate >= todayStr) {
+           let type = String(row[6]).trim(); // Trim type strictly
+           let rawSess = String(row[7]).trim(); 
+           let affected = []; 
+
+           if (type === "Specific Sessions") {
+              if (rawSess && rawSess !== "-" && rawSess.toLowerCase() !== "null") {
+                  const ids = rawSess.split(",").map(s => s.trim());
+                  
+                  // Debug: Ensure logic runs
+                  if(ids.length === 0) affected.push({ time: "-", className: "IDs list empty", teacher: "" });
+
+                  ids.forEach(id => {
+                     // Normalize ID for lookup
+                     let lookupId = String(id).trim();
+                     if(cacheMap.has(lookupId)) {
+                        affected.push(cacheMap.get(lookupId));
+                     } else {
+                        affected.push({ 
+                          time: "?", 
+                          className: `ID: ${lookupId}`, 
+                          teacher: "Not in Today's Cache" 
+                        });
+                     }
+                  });
+              } else {
+                  affected.push({ 
+                    time: "-", 
+                    className: "No Session IDs (Raw: " + rawSess + ")", 
+                    teacher: "Check Log" 
+                  });
+              }
+           } else {
+               // Whole Day
+               affected = "All Classes"; 
+           }
+
+           results.push({
+             ticket: row[0],
+             school: row[3],
+             type: type,
+             reason: row[8],
+             user: row[2],
+             time: row[1],
+             startDate: sDate,
+             endDate: eDate,
+             affected: affected
+           });
+        }
+      }
+      return results;
+    } catch(e) {
+      Logger.log("Error getting cancellations: " + e.toString());
+      return [];
     }
   }
 
-  // Get Absence Data (Reuse existing function)
-  const absentees = getAbsenceData(todayStr);
-
-  return {
-    sessions: sessions,
-    filters: {
-      teachers: Array.from(teachers).sort(),
-      schools: Array.from(schools).sort(),
-      coordinators: Array.from(coords).sort()
-    },
-    cancellations: cancellations,
-    absentCount: absentees.length,
-    absentees: absentees // ส่งรายชื่อคนลาไปด้วย
-  };
-}
+  function normalizeDate(d) {
+    if (d instanceof Date) return Utilities.formatDate(d, "Asia/Bangkok", "yyyy-MM-dd");
+    return String(d).replace(/'/g, "").trim();
+  }
 
 // ... (Functions เดิมที่จำเป็นสำหรับการแจ้งวันหยุด: getSchoolList, getDailySchedule, saveHoliday, recordToSheet, sendHtmlEmail, mapSessionRow) ...
 // เพื่อความสะดวก ก๊อปปี้บรรทัดยาวๆ นี้ไปแปะต่อท้ายได้เลยครับ (ห้ามลืม)
@@ -396,6 +478,6 @@ function getDashboardData() {
 function getSchoolList() { try { var ss = SpreadsheetApp.openById(CONFIG.CENTRAL_DB_ID); var sheet = ss.getSheetByName(CONFIG.SHEET_NAME_SCHOOL); var data = sheet.getDataRange().getValues(); var schools = []; for (var i = 1; i < data.length; i++) { var status = String(data[i][9]).toLowerCase().trim(); if (data[i][1] && status === 'active') { schools.push({ code: data[i][1], name: data[i][3] }); } } return schools.sort((a, b) => a.code.localeCompare(b.code)); } catch (e) { return [{code: "ERR", name: "Error: " + e.message}]; } }
 function getDailySchedule(schoolCode, dateString) { var today = new Date(); var reqDate = new Date(dateString); today.setHours(0,0,0,0); reqDate.setHours(0,0,0,0); if (reqDate.getTime() !== today.getTime()) return []; try { var ss = SpreadsheetApp.openById(CONFIG.CENTRAL_DB_ID); var sheet = ss.getSheetByName(CONFIG.SHEET_NAME_CACHE); if (!sheet) return []; var data = sheet.getDataRange().getValues(); var schedules = []; for (var i = 1; i < data.length; i++) { if (data[i][1] === schoolCode) { schedules.push({ id: data[i][0], time: data[i][3], className: data[i][2], teacher: data[i][4], teacherType: data[i][5], originalTeacher: data[i][6], originalType: data[i][7], status: data[i][8] }); } } return schedules.sort((a, b) => { var tA = normalizeTimeStr(a.time); var tB = normalizeTimeStr(b.time); return tA.localeCompare(tB); }); } catch (e) { return []; } }
 function saveHoliday(data) { try { var ssCentral = SpreadsheetApp.openById(CONFIG.CENTRAL_DB_ID); var sessionDetails = []; var todayStr = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd"); if (data.startDate === todayStr) { try { var cacheSheet = ssCentral.getSheetByName(CONFIG.SHEET_NAME_CACHE); if (cacheSheet) { var cacheData = cacheSheet.getDataRange().getValues(); if (data.type === "Specific Sessions" && data.selectedSessions) { data.selectedSessions.forEach(id => { var row = cacheData.find(r => String(r[0]) === String(id)); if (row) sessionDetails.push(mapSessionRow(row)); }); } else if (data.type === "Whole Day") { cacheData.forEach(row => { if (String(row[1]) === data.schoolCode) { sessionDetails.push(mapSessionRow(row)); } }); } sessionDetails.sort((a, b) => { var tA = normalizeTimeStr(a.time); var tB = normalizeTimeStr(b.time); return tA.localeCompare(tB); }); } } catch(ex) { Logger.log("Error details: " + ex); } } recordToSheet(ssCentral, CONFIG.SHEET_NAME_DESTINATION, data); if (CONFIG.HOLIDAY_DB_ID && CONFIG.HOLIDAY_DB_ID.length > 5) { try { var ssHoliday = SpreadsheetApp.openById(CONFIG.HOLIDAY_DB_ID); recordToSheet(ssHoliday, CONFIG.SHEET_NAME_HOLIDAY_LOG, data); } catch(ex) {} } if (CONFIG.NOTIFICATION_EMAIL) { sendHtmlEmail(data, sessionDetails); } return { status: "success", ticketId: data.ticketId || "NEW-" + Date.now() }; } catch (e) { return { status: "error", message: e.toString() }; } }
-function recordToSheet(ss, sheetName, data) { let sheet = ss.getSheetByName(sheetName); if (!sheet) { sheet = ss.insertSheet(sheetName); sheet.appendRow(["Ticket ID", "Timestamp", "User", "School", "Start Date", "End Date", "Type", "Session IDs", "Reason", "Status"]); } const timestamp = new Date(); const ticketId = data.ticketId || "REQ-" + Math.floor(Date.now() / 1000); const sessionIds = data.selectedSessions ? data.selectedSessions.join(", ") : "-"; sheet.appendRow([ticketId, timestamp, data.displayName, data.schoolCode, "'" + data.startDate, "'" + data.endDate, data.type, sessionIds, data.reason, "Pending"]); }
-function sendHtmlEmail(data, sessionDetails) { var ticketId = data.ticketId || "N/A"; var isWholeDay = data.type === "Whole Day"; var subjectPrefix = isWholeDay ? "🔴 [URGENT]" : "🟡 [NOTICE]"; var subject = `${subjectPrefix} แจ้งยกเลิกคลาส: ${data.schoolCode} (${data.startDate})`; var tableHtml = ""; var totalSessions = sessionDetails.length; if (totalSessions > 0) { var rows = sessionDetails.map((s, index) => { var bg = index % 2 === 0 ? "#ffffff" : "#f9f9f9"; return ` <tr style="background-color: ${bg};"> <td style="padding: 10px; border-bottom: 1px solid #eee; color: #444;">${s.time}</td> <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: #000;">${s.className}</td> <td style="padding: 10px; border-bottom: 1px solid #eee; color: #666;">${s.teacher}</td> </tr>`; }).join(""); tableHtml = ` <div style="margin-top: 20px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;"> <div style="background-color: #f1f8e9; padding: 10px 15px; border-bottom: 1px solid #ddd; color: #33691e; font-weight: bold; font-size: 14px;"> 📋 รายการคาบที่ได้รับผลกระทบ (${totalSessions} คาบ) </div> <table style="width: 100%; border-collapse: collapse; font-size: 14px;"> <thead> <tr style="background-color: #fafafa; text-align: left;"> <th style="padding: 10px; border-bottom: 2px solid #eee; width: 30%;">เวลา</th> <th style="padding: 10px; border-bottom: 2px solid #eee; width: 30%;">ห้องเรียน</th> <th style="padding: 10px; border-bottom: 2px solid #eee;">ครูผู้สอน</th> </tr> </thead> <tbody>${rows}</tbody> </table> </div>`; } else if (data.type !== "Partial") { tableHtml = ` <div style="margin-top: 20px; padding: 15px; background-color: #fff3e0; border: 1px solid #ffe0b2; border-radius: 8px; color: #e65100; font-size: 13px;"> ⚠️ ไม่พบรายละเอียดรายคาบในระบบ (อาจเป็นการแจ้งล่วงหน้า หรือ Cache ยังไม่อัปเดต) </div>`; } var typeBadge = ""; if (isWholeDay) typeBadge = `<span style="background:#ffebee; color:#c62828; padding:4px 10px; border-radius:20px; font-weight:bold; font-size:12px; border:1px solid #ffcdd2;">หยุดทั้งวัน (Whole Day)</span>`; else if (data.type === "Specific Sessions") typeBadge = `<span style="background:#e3f2fd; color:#1565c0; padding:4px 10px; border-radius:20px; font-weight:bold; font-size:12px; border:1px solid #bbdefb;">งดบางคาบ (Partial)</span>`; else typeBadge = `<span style="background:#fff3e0; color:#ef6c00; padding:4px 10px; border-radius:20px; font-weight:bold; font-size:12px; border:1px solid #ffe0b2;">ระบุเอง (Manual)</span>`; var htmlBody = ` <div style="font-family: 'Sarabun', sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.05);"> <div style="background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%); color: white; padding: 25px 20px;"> <h1 style="margin: 0; font-size: 22px; font-weight: bold;">แจ้งวันหยุด / ยกเลิกคลาส</h1> <p style="margin: 5px 0 0; font-size: 13px; opacity: 0.9;">Ticket ID: ${ticketId}</p> </div> <div style="padding: 25px; background-color: #fff;"> <table style="width: 100%; border-collapse: separate; border-spacing: 0 10px;"> <tr> <td style="color: #666; width: 100px; font-size: 14px;">โรงเรียน:</td> <td style="font-size: 18px; font-weight: bold; color: #333;">${data.schoolCode}</td> </tr> <tr> <td style="color: #666; font-size: 14px;">วันที่:</td> <td style="font-size: 16px; font-weight: bold; color: #d32f2f;">${data.startDate} ${data.endDate !== data.startDate ? ' - ' + data.endDate : ''}</td> </tr> <tr> <td style="color: #666; font-size: 14px;">ประเภท:</td> <td>${typeBadge}</td> </tr> <tr> <td style="color: #666; font-size: 14px;">ผู้แจ้ง:</td> <td style="font-weight: 500;">${data.displayName}</td> </tr> </table> <div style="background-color: #f5f5f5; padding: 15px; border-left: 4px solid #757575; margin-top: 10px; border-radius: 4px;"> <span style="font-size: 12px; color: #888; display: block; margin-bottom: 4px;">เหตุผล / หมายเหตุ:</span> <span style="font-size: 14px; color: #333; line-height: 1.5;">${data.reason || "-"}</span> </div> ${tableHtml} <div style="text-align: center; margin-top: 35px; margin-bottom: 10px;"> <a href="https://docs.google.com/spreadsheets/d/${CONFIG.CENTRAL_DB_ID}" style="background-color: #2E7D32; color: white; padding: 12px 30px; text-decoration: none; border-radius: 30px; font-weight: bold; font-size: 14px; box-shadow: 0 2px 5px rgba(46, 125, 50, 0.3);"> เปิดดูไฟล์ Google Sheet </a> </div> </div> <div style="background-color: #fafafa; padding: 15px; text-align: center; font-size: 11px; color: #aaa; border-top: 1px solid #eee;"> Braincloud Operations System | Automated Notification </div> </div> `; try { MailApp.sendEmail({ to: CONFIG.NOTIFICATION_EMAIL, subject: subject, htmlBody: htmlBody }); } catch(e) { Logger.log("Email Error: " + e.message); } }
+function recordToSheet(ss, sheetName, data) { let sheet = ss.getSheetByName(sheetName); if (!sheet) { sheet = ss.insertSheet(sheetName); sheet.appendRow(["Ticket ID", "Timestamp", "User", "School", "Start Date", "End Date", "Type", "Session IDs", "Reason", "Status"]); } const timestamp = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd HH:mm:ss"); const ticketId = data.ticketId || "REQ-" + Math.floor(Date.now() / 1000); const sessionIds = data.selectedSessions ? data.selectedSessions.join(", ") : "-"; sheet.appendRow([ticketId, timestamp, data.displayName, data.schoolCode, "'" + data.startDate, "'" + data.endDate, data.type, sessionIds, data.reason, "Pending"]); }
+function sendHtmlEmail(data, sessionDetails) { var ticketId = data.ticketId || "N/A"; var isWholeDay = data.type === "Whole Day"; var subjectPrefix = isWholeDay ? "🔴 [URGENT]" : "🟡 [NOTICE]"; var subject = `${subjectPrefix} แจ้งยกเลิกคลาส: ${data.schoolCode} (${data.startDate})`; var tableHtml = ""; var totalSessions = sessionDetails.length; if (totalSessions > 0) { var rows = sessionDetails.map((s, index) => { var bg = index % 2 === 0 ? "#ffffff" : "#f9f9f9"; return ` <tr style="background-color: ${bg};"> <td style="padding: 10px; border-bottom: 1px solid #eee; color: #444;">${s.time}</td> <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: #000;">${s.className}</td> <td style="padding: 10px; border-bottom: 1px solid #eee; color: #666;">${s.teacher}</td> </tr>`; }).join(""); tableHtml = ` <div style="margin-top: 20px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;"> <div style="background-color: #f1f8e9; padding: 10px 15px; border-bottom: 1px solid #ddd; color: #33691e; font-weight: bold; font-size: 14px;"> 📋 รายการคาบที่ได้รับผลกระทบ (${totalSessions} คาบ) </div> <table style="width: 100%; border-collapse: collapse; font-size: 14px;"> <thead> <tr style="background-color: #fafafa; text-align: left;"> <th style="padding: 10px; border-bottom: 2px solid #eee; width: 30%;">เวลา</th> <th style="padding: 10px; border-bottom: 2px solid #eee; width: 30%;">ห้องเรียน</th> <th style="padding: 10px; border-bottom: 2px solid #eee;">ครูผู้สอน</th> </tr> </thead> <tbody>${rows}</tbody> </table> </div>`; } else if (data.type !== "Partial") { tableHtml = ` <div style="margin-top: 20px; padding: 15px; background-color: #fff3e0; border: 1px solid #ffe0b2; border-radius: 8px; color: #e65100; font-size: 13px;"> ⚠️ ไม่พบรายละเอียดรายคาบในระบบ (อาจเป็นการแจ้งล่วงหน้า หรือ Cache ยังไม่อัปเดต) </div>`; } var typeBadge = ""; if (isWholeDay) typeBadge = `<span style="background:#ffebee; color:#c62828; padding:4px 10px; border-radius:20px; font-weight:bold; font-size:12px; border:1px solid #ffcdd2;">หยุดทั้งวัน (Whole Day)</span>`; else if (data.type === "Specific Sessions") typeBadge = `<span style="background:#e3f2fd; color:#1565c0; padding:4px 10px; border-radius:20px; font-weight:bold; font-size:12px; border:1px solid #bbdefb;">งดบางคาบ (Partial)</span>`; else typeBadge = `<span style="background:#fff3e0; color:#ef6c00; padding:4px 10px; border-radius:20px; font-weight:bold; font-size:12px; border:1px solid #ffe0b2;">ระบุเอง (Manual)</span>`; var htmlBody = ` <div style="font-family: 'Sarabun', sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.05);"> <div style="background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%); color: white; padding: 25px 20px;"> <h1 style="margin: 0; font-size: 22px; font-weight: bold;">แจ้งวันหยุด / ยกเลิกคลาส</h1> <p style="margin: 5px 0 0; font-size: 13px; opacity: 0.9;">Ticket ID: ${ticketId}</p> </div> <div style="padding: 25px; background-color: #fff;"> <table style="width: 100%; border-collapse: separate; border-spacing: 0 10px;"> <tr> <td style="color: #666; width: 100px; font-size: 14px;">โรงเรียน:</td> <td style="font-size: 18px; font-weight: bold; color: #333;">${data.schoolCode}</td> </tr> <tr> <td style="color: #666; font-size: 14px;">วันที่:</td> <td style="font-size: 16px; font-weight: bold; color: #d32f2f;">${data.startDate} ${data.endDate !== data.startDate ? ' - ' + data.endDate : ''}</td> </tr> <tr> <td style="color: #666; font-size: 14px;">ประเภท:</td> <td>${typeBadge}</td> </tr> <tr> <td style="color: #666; font-size: 14px;">ผู้แจ้ง:</td> <td style="font-weight: 500;">${data.displayName}</td> </tr> </table> <div style="background-color: #f5f5f5; padding: 15px; border-left: 4px solid #757575; margin-top: 10px; border-radius: 4px;"> <span style="font-size: 12px; color: #888; display: block; margin-bottom: 4px;">เหตุผล / หมายเหตุ:</span> <span style="font-size: 14px; color: #333; line-height: 1.5;">${data.reason || "-"}</span> </div> ${tableHtml} <div style="text-align: center; margin-top: 35px; margin-bottom: 10px;"> <a href="https://docs.google.com/spreadsheets/d/1eFkKYKXYpuIAmqQOH3BokANdbTUYjkLAmm4iwfAuluc/" style="background-color: #2E7D32; color: white; padding: 12px 30px; text-decoration: none; border-radius: 30px; font-weight: bold; font-size: 14px; box-shadow: 0 2px 5px rgba(46, 125, 50, 0.3);"> เปิดดูไฟล์ Google Sheet </a> </div> </div> <div style="background-color: #fafafa; padding: 15px; text-align: center; font-size: 11px; color: #aaa; border-top: 1px solid #eee;"> Braincloud Operations System | Automated Notification </div> </div> `; try { MailApp.sendEmail({ to: CONFIG.NOTIFICATION_EMAIL, subject: subject, htmlBody: htmlBody }); } catch(e) { Logger.log("Email Error: " + e.message); } }
 function mapSessionRow(row) { return { time: row[3], className: row[2], teacher: row[4] }; }
