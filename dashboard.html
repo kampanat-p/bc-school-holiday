@@ -315,15 +315,25 @@
         
         // Affected Text
         let affectedHtml = "";
-        if (c.type === 'Specific Sessions' && c.affected && c.affected !== '-') {
-           // พยายามแสดงให้สวยงาม (ถ้าเป็น IDs ยาวๆ อาจจะย่อ หรือแค่บอกว่ามีกี่คาบ)
-           // แต่ User ขอ "what are the affected classes" ข้อมูลดิบคือ ID 
-           // เราจะแสดงแบบ Raw ID ไปก่อน หรือ Count
-           affectedHtml = `<div class="mt-2 text-xs bg-gray-50 border border-gray-100 p-2 rounded">
-             <div class="font-bold text-gray-500 mb-1">Affected Classes (IDs):</div>
-             <div class="font-mono text-[10px] text-gray-600 break-all">${c.affected}</div>
+        if (Array.isArray(c.affected) && c.affected.length > 0) {
+           // Display List of Sessions
+           const rows = c.affected.map(a => `
+              <div class="flex justify-between items-center text-[11px] py-1 border-b border-gray-100 last:border-0">
+                 <div><span class="font-mono text-gray-500 mr-2">${a.time}</span> <span class="font-bold text-gray-700">${a.className}</span></div>
+                 <div class="text-gray-500">${a.teacher}</div>
+              </div>
+           `).join("");
+           
+           affectedHtml = `<div class="mt-2 bg-yellow-50 border border-yellow-200 rounded p-2">
+             <div class="text-[10px] font-bold text-yellow-800 mb-1">Affected Classes (${c.affected.length}):</div>
+             ${rows}
            </div>`;
+
+        } else if (c.type === 'Specific Sessions') {
+            // Fallback for Specific Sessions without details (e.g. future date)
+            affectedHtml = `<div class="mt-2 text-xs bg-gray-50 border border-gray-100 p-2 rounded text-gray-500">Specific Sessions (Details not in cache)</div>`;
         } else {
+           // Whole Day / Manual
            affectedHtml = `<div class="mt-1 text-xs text-green-600"><i class="fas fa-check-circle"></i> Cancel All Classes</div>`;
         }
 
