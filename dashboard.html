@@ -335,9 +335,17 @@
            </div>`;
 
         } else if (c.type === 'Specific Sessions') {
-            // Debugging: If type is specific sessions but checks failed check what affected contains
-            let debugVal = (typeof c.affected === 'string') ? c.affected : JSON.stringify(c.affected);
-            affectedHtml = `<div class="mt-1 text-xs text-orange-600">⚠ Specific Sessions (No Data: ${debugVal})</div>`;
+            // Debugging: Show detailed diagnostics
+            affectedHtml = `
+            <div class="mt-1 text-xs text-orange-600 border border-orange-200 p-2 bg-orange-50">
+               <b>⚠ Specific Sessions (No Data)</b><br>
+               Debug Info:<br>
+               - Affected Type: ${c._affectedType || 'N/A'}<br>
+               - Raw Type: "${c._rawType}"<br>
+               - Raw Sess: "${c._rawSess}"<br>
+               - JS Type: ${typeof c.affected}<br>
+               - IsArray: ${Array.isArray(c.affected)}
+            </div>`;
         } else {
            // Whole Day / Manual (affected is String "All Classes")
            affectedHtml = `<div class="mt-1 text-xs text-green-600 bg-green-50 p-2 rounded border border-green-100 flex items-center">
