@@ -293,14 +293,14 @@
         card.className = cardClass;
         if (!isCancelled) card.onclick = () => toggleSession(card, s.id);
 
-        card.innerHTML = `<div><div class="font-bold text-gray-800">${s.className}</div><div class="text-xs text-gray-500">${s.time} | ${s.teacher} ${isCover ? '(Sub)' : ''}</div></div><div class="check-icon hidden text-green-600"><i class="fas fa-check-circle fa-lg"></i></div>`;
+        card.innerHTML = `<div><div class="font-bold text-gray-800">${s.className}</div><div class="text-xs text-gray-500">${s.time} | ${s.teacher} ${isCover ? '(Sub)' : ''}</div></div><div class="check-icon hidden text-red-600"><i class="fas fa-times-circle fa-lg"></i></div>`;
         container.appendChild(card);
       });
     }
 
     function toggleSession(card, id) {
-      if (selectedSessions.has(id)) { selectedSessions.delete(id); card.classList.remove('border-green-500', 'bg-green-50'); card.querySelector('.check-icon').classList.add('hidden'); } 
-      else { selectedSessions.add(id); card.classList.add('border-green-500', 'bg-green-50'); card.querySelector('.check-icon').classList.remove('hidden'); }
+      if (selectedSessions.has(id)) { selectedSessions.delete(id); card.classList.remove('border-red-500', 'bg-red-50'); card.querySelector('.check-icon').classList.add('hidden'); } 
+      else { selectedSessions.add(id); card.classList.add('border-red-500', 'bg-red-50'); card.querySelector('.check-icon').classList.remove('hidden'); }
     }
   </script>
 </body>

@@ -347,9 +347,15 @@
                - IsArray: ${Array.isArray(c.affected)}
             </div>`;
         } else {
-           // Whole Day / Manual (affected is String "All Classes")
-           affectedHtml = `<div class="mt-1 text-xs text-green-600 bg-green-50 p-2 rounded border border-green-100 flex items-center">
-             <i class="fas fa-check-circle mr-2"></i> Cancel All Classes (Whole Day)
+           // Whole Day / Manual / Partial
+           // Logic to differentiate display
+           let isPartial = c.type.toLowerCase().includes("partial");
+           let label = isPartial ? "Partial Cancellation" : "Cancel All Classes (Whole Day)";
+           let icon = isPartial ? "fa-clock" : "fa-check-circle";
+           let color = isPartial ? "orange" : "green";
+
+           affectedHtml = `<div class="mt-1 text-xs text-${color}-600 bg-${color}-50 p-2 rounded border border-${color}-100 flex items-center">
+             <i class="fas ${icon} mr-2"></i> ${label}
            </div>`;
         }
 
