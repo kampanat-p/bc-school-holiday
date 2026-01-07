@@ -305,17 +305,55 @@
       }
 
       cancels.forEach(c => {
+        // Date Logic
+        let dateText = "";
+        if (c.startDate === c.endDate) {
+           dateText = `<span class="bg-blue-50 text-blue-600 px-1 rounded border border-blue-100">${formatDateShort(c.startDate)}</span>`;
+        } else {
+           dateText = `<span class="bg-purple-50 text-purple-600 px-1 rounded border border-purple-100">${formatDateShort(c.startDate)} - ${formatDateShort(c.endDate)}</span>`;
+        }
+        
+        // Affected Text
+        let affectedHtml = "";
+        if (c.type === 'Specific Sessions' && c.affected && c.affected !== '-') {
+           // พยายามแสดงให้สวยงาม (ถ้าเป็น IDs ยาวๆ อาจจะย่อ หรือแค่บอกว่ามีกี่คาบ)
+           // แต่ User ขอ "what are the affected classes" ข้อมูลดิบคือ ID 
+           // เราจะแสดงแบบ Raw ID ไปก่อน หรือ Count
+           affectedHtml = `<div class="mt-2 text-xs bg-gray-50 border border-gray-100 p-2 rounded">
+             <div class="font-bold text-gray-500 mb-1">Affected Classes (IDs):</div>
+             <div class="font-mono text-[10px] text-gray-600 break-all">${c.affected}</div>
+           </div>`;
+        } else {
+           affectedHtml = `<div class="mt-1 text-xs text-green-600"><i class="fas fa-check-circle"></i> Cancel All Classes</div>`;
+        }
+
         list.innerHTML += `
           <div class="bg-white border-l-4 border-red-500 p-3 rounded shadow-sm">
-            <div class="flex justify-between">
-              <span class="font-bold text-red-600">${c.school}</span>
-              <span class="text-[10px] text-gray-400">${new Date(c.time).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})}</span>
+            <div class="flex justify-between items-start">
+              <div>
+                <span class="font-bold text-red-600 text-lg">${c.school}</span>
+                <div class="mt-1 flex items-center gap-2 text-[10px] font-mono text-gray-400">
+                  <i class="far fa-calendar-alt"></i> ${dateText}
+                </div>
+              </div>
+              <span class="text-[10px] text-gray-400 bg-gray-100 px-2 py-1 rounded">${new Date(c.time).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})}</span>
             </div>
-            <div class="text-sm font-bold mt-1 text-gray-800">${c.type}</div>
-            <div class="text-xs text-gray-600 bg-gray-50 p-2 rounded mt-1">${c.reason}</div>
-            <div class="text-[10px] text-gray-400 mt-1 text-right">โดย: ${c.user}</div>
+            
+            <div class="text-sm font-bold mt-2 text-gray-800 border-t pt-2">${c.type}</div>
+            <div class="text-xs text-gray-600 mb-2">${c.reason}</div>
+            
+            ${affectedHtml}
+
+            <div class="text-[10px] text-gray-400 mt-2 text-right">โดย: ${c.user} <span class="bg-gray-100 text-gray-500 px-1 rounded ml-1">#${c.ticket}</span></div>
           </div>`;
       });
+    }
+
+    function formatDateShort(dateStr) {
+       // yyyy-MM-dd -> d MMM
+       if(!dateStr) return "";
+       const d = new Date(dateStr);
+       return d.toLocaleDateString("th-TH", { day: 'numeric', month: 'short' });
     }
 
     function renderAbsentList(list) {
