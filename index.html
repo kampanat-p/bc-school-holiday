@@ -166,11 +166,7 @@
       const statusText = document.getElementById('status-text');
       statusText.innerText = "กำลังดึงรายชื่อโรงเรียน...";
       
-      fetch(GAS_API_URL + "?action=getSchools", {
-          method: 'GET',
-          mode: 'cors',
-          redirect: 'follow'
-        })
+      fetch(GAS_API_URL + "?action=getSchools")
         .then(response => response.json())
         .then(schools => {
            const select = document.getElementById('schoolSelect');
@@ -191,11 +187,7 @@
       document.getElementById('loadingSchedule').classList.remove('hidden');
       document.getElementById('scheduleList').innerHTML = "";
       
-      fetch(`${GAS_API_URL}?action=getSchedule&code=${code}&date=${date}`, {
-          method: 'GET',
-          mode: 'cors',
-          redirect: 'follow'
-        })
+      fetch(`${GAS_API_URL}?action=getSchedule&code=${code}&date=${date}`)
         .then(response => response.json())
         .then(schedules => renderSchedule(schedules))
         .catch(err => alert("โหลดตารางไม่ได้: " + err));
@@ -232,16 +224,13 @@
         // ใช้ fetch POST ส่งข้อมูลกลับไป GAS (CORS Friendly)
         fetch(GAS_API_URL, {
           method: 'POST',
-          mode: 'cors',
-          redirect: 'follow',
-          headers: {
-            'Content-Type': 'text/plain'
-          },
-          body: JSON.stringify(data)
+          body: JSON.stringify(data),
+          // mode: 'no-cors' // ใช้ no-cors เพื่อเลี่ยง error แต่อ่าน response ไม่ได้
+          // แต่ถ้า GAS return textOutput json จะอ่านได้
         })
         .then(response => response.json())
         .then(res => {
-           alert("บันทึกสำเร็จ! Ticket: " + res.ticketId);
+           alert("บันทึกข้อมูลเรียบร้อยแล้ว\nกรุณาตรวจสอบสถานะได้ที่ Dashboard");
            liff.closeWindow();
         })
         .catch(err => {
