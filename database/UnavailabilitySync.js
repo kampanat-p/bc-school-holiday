@@ -137,6 +137,7 @@ function saveToUnavailabilityDB(ss, jsonResponse) {
   }
 
   let newRows = [];
+  let supabaseInserts = []; // Supabase Batch
   let updateCount = 0;
   
   // Helper Function: แปลง String "YYYY-MM-DD" ให้เป็น Date Object จริงๆ
@@ -175,14 +176,32 @@ function saveToUnavailabilityDB(ss, jsonResponse) {
                     new Date()              // I: last_updated
                 ];
 
+                // Supabase Payload
+                const supabaseRecord = {
+                    unavailability_id: compositeId,
+                    teacher_id: bcpTeacherId,
+                    start_date: item.u_start_date,
+                    end_date: item.u_end_date,
+                    start_time: item.u_start_time,
+                    end_time: item.u_end_time,
+                    remark: item.u_remark,
+                    semester_id: item.semester_id,
+                    last_updated: new Date().toISOString()
+                };
+
                 if (existingMap.has(compositeId)) {
                     // Update
                     let rowIdx = existingMap.get(compositeId);
                     sheet.getRange(rowIdx, 1, 1, record.length).setValues([record]);
+    // Sync New Rows to Supabase
+    sendToSupabase('fact_teacher_unavailability', supabaseInserts);
                     updateCount++;
+                    // Sync Update to Supabase
+                    sendToSupabase('fact_teacher_unavailability', [supabaseRecord]);
                 } else {
                     // Insert
                     newRows.push(record);
+                    supabaseInserts.push(supabaseRecord);
                 }
             });
         }

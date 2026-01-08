@@ -182,7 +182,29 @@ function saveTeachersToDB(ss, jsonResponse) {
               needsUpdate = true;
           }
 
-          if (needsUpdate) updateCount++;
+          if (needsUpdate) {
+             updateCount++;
+             
+             // Sync Update to Supabase
+             // Since we modify individual cells above, we don't have a clean 'row' object here.
+             // We can construct a partial update object, or we can just fetch the full row later?
+             // Partial object is safest.
+             
+             const updatePayload = {
+               braincloud_id: webId,
+               first_name_en: fnameEn,
+               last_name_en: teacher.lastname_en || "",
+               first_name_th: fnameTh,
+               last_name_th: teacher.lastname_th || "",
+               user_type: (calculatedUserType !== "") ? calculatedUserType : current.userType,
+               affiliation: calculatedAffiliation,
+               position: (calculatedPosition !== "") ? calculatedPosition : current.position,
+               status: calculatedStatus
+             };
+             
+             // We use 'braincloud_id' as the key to upsert/update
+             sendToSupabase('dim_user', updatePayload);
+          }
 
       } else {
           // >>> INSERT LOGIC (เพิ่มคนใหม่) <<<
@@ -215,6 +237,20 @@ function saveTeachersToDB(ss, jsonResponse) {
       newRows.length, 
       newRows[0].length
     ).setValues(newRows);
+    
+    // Sync New Rows to Supabase
+    const newPayload = newRows.map(r => ({
+       braincloud_id: r[22],
+       first_name_en: r[2],
+       last_name_en: r[3],
+       first_name_th: r[4],
+       last_name_th: r[5],
+       user_type: r[13],
+       affiliation: r[14],
+       position: r[15],
+       status: r[20]
+    }));
+    sendToSupabase('dim_user', newPayload);
   }
   
   // 4. [NEW] แสดงผล Log

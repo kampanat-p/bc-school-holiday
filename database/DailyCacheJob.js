@@ -93,6 +93,31 @@ function createDailyCache() {
     var range = cacheSheet.getRange(2, 1, cachedRows.length, cachedRows[0].length);
     range.setNumberFormat("@"); // @ = Plain Text
     range.setValues(cachedRows);
+
+    // ---------------------------------------------
+    // 5. Supabase Sync (Added)
+    // ---------------------------------------------
+    const payload = cachedRows.map(r => ({
+      session_id: r[0],
+      school_code: r[1],
+      class_name: r[2],
+      time_slot: r[3],
+      actual_teacher_name: r[4],
+      actual_teacher_type: r[5],
+      original_teacher_name: r[6],
+      original_teacher_type: r[7],
+      status: r[8],
+      school_id: r[9],
+      synced_at: new Date().toISOString()
+    }));
+    
+    // We replace the entire table content using an "upsert" or simply delete-then-insert strategy?
+    // Since this is a "Cache" job that clears the sheet, we should probably Clear + Insert in Supabase too?
+    // But Supabase REST doesn't have a "Truncate" endpoint easily accessible without RLS policies.
+    // For now, we will use UPSERT on session_id if it's the Primary Key.
+    // Note: If you want to mirror the "Clear + Append" behavior, you would technically need to delete records where date = today.
+    
+    sendToSupabase('cache_today_session', payload);
   }
   
   cacheSheet.getRange("Z1").setValue("Updated: " + new Date());

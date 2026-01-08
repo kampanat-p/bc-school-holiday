@@ -316,13 +316,37 @@ function updatePaymentLedger(startDate, endDate) {
   }
 
   // 5. Execute Writes (Batch)
+  
+  // Helper to map record to Supabase JSON
+  const mapToSupabase = (r) => ({
+      payment_key: `${r[0]}_${r[5]}`, // Composite Key: SessionID_TeacherName (Required for Upsert)
+      session_id: r[0],
+      date: r[1],
+      time_range: r[2],
+      school: r[3],
+      class_name: r[4],
+      teacher_name: r[5],
+      teacher_type: r[6],
+      event_type: r[7],
+      system_analysis: r[8],
+      status: r[9],
+      payable_unit: r[10],
+      last_updated: (r[11] instanceof Date) ? r[11].toISOString() : r[11]
+  });
+
   if (rowsToUpdate.length > 0) {
       rowsToUpdate.forEach(item => {
           sheetLedger.getRange(item.row, 1, 1, item.values.length).setValues([item.values]);
       });
+      // Sync Updates to Supabase (Use 'payment_key' to resolve conflict)
+      const updatePayloads = rowsToUpdate.map(item => mapToSupabase(item.values));
+      sendToSupabase('db_payment_ledger', updatePayloads, 'payment_key');
   }
   if (rowsToInsert.length > 0) {
       sheetLedger.getRange(sheetLedger.getLastRow()+1, 1, rowsToInsert.length, rowsToInsert[0].length).setValues(rowsToInsert);
+      // Sync Inserts to Supabase (Use 'payment_key' to resolve conflict)
+      const insertPayloads = rowsToInsert.map(r => mapToSupabase(r));
+      sendToSupabase('db_payment_ledger', insertPayloads, 'payment_key');
   }
 
   console.log(`💾 Ledger Updated: ${rowsToUpdate.length} updated, ${rowsToInsert.length} new inserted.`);

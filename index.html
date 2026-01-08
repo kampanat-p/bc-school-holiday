@@ -125,7 +125,7 @@
     // ⚙️ SETUP (แก้ตรงนี้)
     // ***********************************************
     const MY_LIFF_ID = "2008775079-PKwtDJOx"; 
-    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxSNgCYvjhgX5pEAxIpKvUAtmPJzUO37Fo2q8Q3p8Z36gsUKFXWmI2L-qhyPXnhT2Q-IA/exec";
+    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw0Z_hAvk8N27w4SUNiRiisKplikxiVvntTDbBTmllC4uzT3rHp2QMwkMvpAVKS4yQWyA/exec";
     // ***********************************************
 
     let userProfile = { userId: "U_GUEST", displayName: "Guest" };
@@ -241,7 +241,7 @@
         })
         .then(response => response.json())
         .then(res => {
-           alert("บันทึกสำเร็จ! Ticket: " + res.ticketId);
+           alert("บันทึกข้อมูลเรียบร้อยแล้ว\nกรุณาตรวจสอบสถานะได้ที่ Dashboard");
            liff.closeWindow();
         })
         .catch(err => {

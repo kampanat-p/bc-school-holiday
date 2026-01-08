@@ -281,6 +281,9 @@ function saveToDatabase(ss, jsonResponse, TARGET_DATE, mode) {
         let rowIdx = prevData.row;
         factSheet.getRange(rowIdx, 1, 1, record.length).setValues([record]);
         updateCount++;
+        // Sync Update to Supabase immediately (or collect in array if volume is high)
+        // For simplicity and realtime-ness:
+        sendToSupabase('fact_daily_session', mapFactSessionToSupabase(record)); 
       } else {
         newRows.push(record);
       }
@@ -291,7 +294,52 @@ function saveToDatabase(ss, jsonResponse, TARGET_DATE, mode) {
   if (newRows.length > 0) {
     factSheet.getRange(factSheet.getLastRow() + 1, 1, newRows.length, newRows[0].length).setValues(newRows);
   }
+  
+  // ------------------------------------------------------------------------
+  // Supabase Sync (Insert Only for newRows? Or Upsert for all updated?)
+  // Ideally, processSync handles "Update" one by one and "Insert" in batch.
+  // To keep Supabase in sync, we should send BOTH updates and inserts.
+  //
+  // NOTE: For 'newRows', we can batch send. For updates, we did them one by one above.
+  // To be robust, we should gather ALL modified records (both new and updated) and send them efficiently.
+  // ------------------------------------------------------------------------
+  
+  // 1. Gather Updates (We didn't store them above, so let's just log them to Supabase individually inside the loop for now? 
+  // No, that's too slow. Let's create a collection for Supabase Sync.)
+  
+  // Since we already executed the sheet updates, let's reconstruct the payload for everything that was touched.
+  // Actually, 'newRows' is easy. The 'updated' ones are harder because we didn't save them in a list.
+  // Let's rely on 'newRows' for now. For strict synchronization of UPDATES, we need to modify the update loop above.
+
+  // Let's modify the Update Loop above slightly to collect "upsertPayload".
+  // (Since I can't easily edit the loop without big context, I will sync `newRows` here. 
+  //  For full sync, user might need to run a full backfill or I should stick to adding collection logic.)
+  
+  // Let's collect 'newRows' payload first
+  if (newRows.length > 0) {
+     const newPayload = newRows.map(r => mapFactSessionToSupabase(r));
+     sendToSupabase('fact_daily_session', newPayload);
+  }
+  
   console.log(`💾 Saved ${TARGET_DATE}: Inserted ${newRows.length}, Updated ${updateCount}`);
+}
+
+function mapFactSessionToSupabase(r) {
+  // r index: 0:id, 1:date, 2:start, 3:end, 4:class, 5:school_id, 6:act_teacher, 7:orig_teacher, 8:status, 9:payable, 10:updated, 11:cancelled_at
+  return {
+    session_id: r[0],
+    date: r[1],
+    start_time: r[2],
+    end_time: r[3],
+    class_name: r[4],
+    school_id: r[5],
+    actual_teacher_id: r[6],
+    original_teacher_id: r[7],
+    status: r[8],
+    is_payable: r[9],
+    last_updated: r[10] instanceof Date ? r[10].toISOString() : r[10],
+    cancelled_at: r[11] instanceof Date ? r[11].toISOString() : r[11]
+  };
 }
 
 function mergeCookies(oldCookies, newCookiesHeader) {

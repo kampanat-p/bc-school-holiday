@@ -5,6 +5,10 @@
  * ------------------------------------------------------------------
  */
 
+// Add these at the top level
+const SUPABASE_URL = "https://cgznmxcecljfybcgujjb.supabase.co";
+const SUPABASE_KEY = "sb_secret_OZY09KeaLJWDKxEEdbu7DQ_VN41EJ4M";
+
 const CONFIG = {
   // *** ตรวจสอบ ID ไฟล์ให้ถูกต้อง ***
   CENTRAL_DB_ID: "1NOZy-viGx5T60QQCo5GtdY3Lag7IrjkJb4_ePQ7YUeY", 
@@ -451,6 +455,11 @@ function getDashboardData() {
              ticket: row[0],
              school: row[3],
              type: type,
+             // Debug fields
+             _rawType: row[6],
+             _rawSess: row[7],
+             _affectedType: Array.isArray(affected) ? "Array" : typeof affected,
+             
              reason: row[8],
              user: row[2],
              time: row[1],
@@ -481,3 +490,47 @@ function saveHoliday(data) { try { var ssCentral = SpreadsheetApp.openById(CONFI
 function recordToSheet(ss, sheetName, data) { let sheet = ss.getSheetByName(sheetName); if (!sheet) { sheet = ss.insertSheet(sheetName); sheet.appendRow(["Ticket ID", "Timestamp", "User", "School", "Start Date", "End Date", "Type", "Session IDs", "Reason", "Status"]); } const timestamp = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd HH:mm:ss"); const ticketId = data.ticketId || "REQ-" + Math.floor(Date.now() / 1000); const sessionIds = data.selectedSessions ? data.selectedSessions.join(", ") : "-"; sheet.appendRow([ticketId, timestamp, data.displayName, data.schoolCode, "'" + data.startDate, "'" + data.endDate, data.type, sessionIds, data.reason, "Pending"]); }
 function sendHtmlEmail(data, sessionDetails) { var ticketId = data.ticketId || "N/A"; var isWholeDay = data.type === "Whole Day"; var subjectPrefix = isWholeDay ? "🔴 [URGENT]" : "🟡 [NOTICE]"; var subject = `${subjectPrefix} แจ้งยกเลิกคลาส: ${data.schoolCode} (${data.startDate})`; var tableHtml = ""; var totalSessions = sessionDetails.length; if (totalSessions > 0) { var rows = sessionDetails.map((s, index) => { var bg = index % 2 === 0 ? "#ffffff" : "#f9f9f9"; return ` <tr style="background-color: ${bg};"> <td style="padding: 10px; border-bottom: 1px solid #eee; color: #444;">${s.time}</td> <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: #000;">${s.className}</td> <td style="padding: 10px; border-bottom: 1px solid #eee; color: #666;">${s.teacher}</td> </tr>`; }).join(""); tableHtml = ` <div style="margin-top: 20px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;"> <div style="background-color: #f1f8e9; padding: 10px 15px; border-bottom: 1px solid #ddd; color: #33691e; font-weight: bold; font-size: 14px;"> 📋 รายการคาบที่ได้รับผลกระทบ (${totalSessions} คาบ) </div> <table style="width: 100%; border-collapse: collapse; font-size: 14px;"> <thead> <tr style="background-color: #fafafa; text-align: left;"> <th style="padding: 10px; border-bottom: 2px solid #eee; width: 30%;">เวลา</th> <th style="padding: 10px; border-bottom: 2px solid #eee; width: 30%;">ห้องเรียน</th> <th style="padding: 10px; border-bottom: 2px solid #eee;">ครูผู้สอน</th> </tr> </thead> <tbody>${rows}</tbody> </table> </div>`; } else if (data.type !== "Partial") { tableHtml = ` <div style="margin-top: 20px; padding: 15px; background-color: #fff3e0; border: 1px solid #ffe0b2; border-radius: 8px; color: #e65100; font-size: 13px;"> ⚠️ ไม่พบรายละเอียดรายคาบในระบบ (อาจเป็นการแจ้งล่วงหน้า หรือ Cache ยังไม่อัปเดต) </div>`; } var typeBadge = ""; if (isWholeDay) typeBadge = `<span style="background:#ffebee; color:#c62828; padding:4px 10px; border-radius:20px; font-weight:bold; font-size:12px; border:1px solid #ffcdd2;">หยุดทั้งวัน (Whole Day)</span>`; else if (data.type === "Specific Sessions") typeBadge = `<span style="background:#e3f2fd; color:#1565c0; padding:4px 10px; border-radius:20px; font-weight:bold; font-size:12px; border:1px solid #bbdefb;">งดบางคาบ (Partial)</span>`; else typeBadge = `<span style="background:#fff3e0; color:#ef6c00; padding:4px 10px; border-radius:20px; font-weight:bold; font-size:12px; border:1px solid #ffe0b2;">ระบุเอง (Manual)</span>`; var htmlBody = ` <div style="font-family: 'Sarabun', sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.05);"> <div style="background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%); color: white; padding: 25px 20px;"> <h1 style="margin: 0; font-size: 22px; font-weight: bold;">แจ้งวันหยุด / ยกเลิกคลาส</h1> <p style="margin: 5px 0 0; font-size: 13px; opacity: 0.9;">Ticket ID: ${ticketId}</p> </div> <div style="padding: 25px; background-color: #fff;"> <table style="width: 100%; border-collapse: separate; border-spacing: 0 10px;"> <tr> <td style="color: #666; width: 100px; font-size: 14px;">โรงเรียน:</td> <td style="font-size: 18px; font-weight: bold; color: #333;">${data.schoolCode}</td> </tr> <tr> <td style="color: #666; font-size: 14px;">วันที่:</td> <td style="font-size: 16px; font-weight: bold; color: #d32f2f;">${data.startDate} ${data.endDate !== data.startDate ? ' - ' + data.endDate : ''}</td> </tr> <tr> <td style="color: #666; font-size: 14px;">ประเภท:</td> <td>${typeBadge}</td> </tr> <tr> <td style="color: #666; font-size: 14px;">ผู้แจ้ง:</td> <td style="font-weight: 500;">${data.displayName}</td> </tr> </table> <div style="background-color: #f5f5f5; padding: 15px; border-left: 4px solid #757575; margin-top: 10px; border-radius: 4px;"> <span style="font-size: 12px; color: #888; display: block; margin-bottom: 4px;">เหตุผล / หมายเหตุ:</span> <span style="font-size: 14px; color: #333; line-height: 1.5;">${data.reason || "-"}</span> </div> ${tableHtml} <div style="text-align: center; margin-top: 35px; margin-bottom: 10px;"> <a href="https://docs.google.com/spreadsheets/d/1eFkKYKXYpuIAmqQOH3BokANdbTUYjkLAmm4iwfAuluc/" style="background-color: #2E7D32; color: white; padding: 12px 30px; text-decoration: none; border-radius: 30px; font-weight: bold; font-size: 14px; box-shadow: 0 2px 5px rgba(46, 125, 50, 0.3);"> เปิดดูไฟล์ Google Sheet </a> </div> </div> <div style="background-color: #fafafa; padding: 15px; text-align: center; font-size: 11px; color: #aaa; border-top: 1px solid #eee;"> Braincloud Operations System | Automated Notification </div> </div> `; try { MailApp.sendEmail({ to: CONFIG.NOTIFICATION_EMAIL, subject: subject, htmlBody: htmlBody }); } catch(e) { Logger.log("Email Error: " + e.message); } }
 function mapSessionRow(row) { return { time: row[3], className: row[2], teacher: row[4] }; }
+/**
+ * ------------------------------------------------------------------
+ * Supabase Integration Helper
+ * ------------------------------------------------------------------
+ */
+function sendToSupabase(tableName, payload, onConflictColumn = null) {
+  // Use global constants. Define SUPABASE_URL and SUPABASE_KEY in your CONFIG or Global scope.
+  if (typeof SUPABASE_URL === 'undefined' || typeof SUPABASE_KEY === 'undefined' || !SUPABASE_URL || !SUPABASE_KEY) {
+    Logger.log('Supabase credentials missing. Skipping sync.');
+    return;
+  }
+
+  let url = `${SUPABASE_URL}/rest/v1/${tableName}`;
+  if (onConflictColumn) {
+    url += `?on_conflict=${onConflictColumn}`;
+  }
+  
+  const options = {
+    method: 'post',
+    contentType: 'application/json',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'Prefer': 'resolution=merge-duplicates,return=minimal' // Upsert + minimal return
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(url, options);
+    const code = response.getResponseCode();
+    
+    if (code >= 200 && code < 300) {
+      Logger.log(`Supabase Sync Success [${tableName}]: ${code}`);
+    } else {
+      Logger.log(`Supabase Sync Failed [${tableName}]: ${code} - ${response.getContentText()}`);
+    }
+  } catch (e) {
+    // Catch network errors or timeouts so the main script doesn't crash
+    Logger.log(`Supabase API Error: ${e.toString()}`);
+  }
+}
+
