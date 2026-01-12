@@ -48,6 +48,7 @@
     .spinner { border: 5px solid #f3f3f3; border-top: 5px solid #3498db; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     .loading-text { margin-top: 15px; color: #555; font-size: 16px; font-weight: bold; }
+    .error-text { margin-top: 10px; color: #d32f2f; font-size: 14px; font-weight: bold; padding: 10px; background: #ffebee; border-radius: 4px; display: none; text-align: center; max-width: 80%; }
 
     .vis-item { border-right: 2px solid white !important; border-left: 2px solid white !important; border-radius: 0px !important; opacity: 0.95; height: 40px !important; display: flex !important; align-items: center; justify-content: center; cursor: pointer; } 
     .vis-item .vis-item-content { padding: 0 5px; font-size: 11px; font-weight: 600; line-height: 1.2; text-align: center; width: 100%; }
@@ -146,7 +147,8 @@
 
   <div id="loading-overlay">
     <div class="spinner"></div>
-    <div class="loading-text">Loading Timetable...</div>
+    <div class="loading-text" id="loading-text">Loading Timetable...</div>
+    <div class="error-text" id="error-text"></div>
   </div>
 
   <div class="header-section">
@@ -229,8 +231,8 @@
     // --------------------------------------------------------
     const SUPABASE_URL = "https://cgznmxcecljfybcgujjb.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ";
-    const supabase = (window.supabase) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
-
+    // Defer initialization to loadData or ensure loaded
+    
     var timeline;
     var visItemsDataSet;
     var groupsDataSet;
@@ -251,15 +253,32 @@
     var cachedSchools = null;
 
     window.onload = function() {
-        var today = new Date();
-        var bkkOffset = 7 * 60; 
-        var localOffset = today.getTimezoneOffset(); // in minutes. e.g. -420 for BKK
-        // We just want YYYY-MM-DD
-        document.getElementById('datePicker').value = today.toISOString().slice(0, 10);
+        // [FIX] Force Date to Bangkok Time Zone for default value
+        var now = new Date();
+        // Adjust to UTC+7
+        var bkkTime = new Date(now.getTime() + (7 * 60 * 60 * 1000) + (now.getTimezoneOffset() * 60000));
+        var bkkDateStr = bkkTime.toISOString().slice(0, 10);
+        
+        document.getElementById('datePicker').value = bkkDateStr;
         
         loadData();
         setInterval(updateCurrentTimeRuler, 60000);
     };
+
+    function updateStatus(msg) {
+        var el = document.getElementById('loading-text');
+        if(el) el.innerText = msg;
+        console.log("[Status] " + msg);
+    }
+
+    function showError(msg) {
+        var el = document.getElementById('error-text');
+        if(el) {
+            el.innerText = msg;
+            el.style.display = 'block';
+        }
+        document.querySelector('.spinner').style.borderTopColor = '#d32f2f'; // Red spinner
+    }
 
     function manualReload() { loadData(); }
 
@@ -276,12 +295,20 @@
         // ... (Same as before)
         if (cachedUsers) return; 
 
-        const { data: users, error: uErr } = await supabase.from('dim_user').select('*');
-        if (uErr) console.error("Error loading users:", uErr);
+        updateStatus("Loading Teachers & Schools...");
+        
+        // Ensure Supabase client logic
+        const sb = getSupabase();
+
+        const { data: users, error: uErr } = await sb.from('dim_user').select('*');
+        if (uErr) {
+             console.error("Error loading users:", uErr);
+             // Don't throw, just log. We can survive without mapping.
+        }
         
         let schools = [];
         try {
-            const { data: sData, error: sErr } = await supabase.from('dim_school').select('*');
+            const { data: sData, error: sErr } = await sb.from('dim_school').select('*');
             if (!sErr) schools = sData;
         } catch(e) { console.log("Skipping school load"); }
 
@@ -310,30 +337,44 @@
             });
         }
     }
+    
+    function getSupabase() {
+        if (window.supabaseClient) return window.supabaseClient;
+        if (window.supabase) {
+             window.supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+             return window.supabaseClient;
+        }
+        throw new Error("Supabase Library not loaded. Check your connection or AdBlocker.");
+    }
 
     async function loadData() {
         if(isSimMode) return; 
         document.getElementById('loading-overlay').style.display = 'flex';
+        document.getElementById('error-text').style.display = 'none';
         var date = document.getElementById('datePicker').value;
 
         try {
-            if (!supabase) throw new Error("Supabase client not initialized");
+            updateStatus("Connecting to Database...");
+            // Initial check
+            var sb = getSupabase();
 
             await fetchMasterData(); // Ensure users/schools loaded
 
-            const { data: sessions, error: sErr } = await supabase
+            updateStatus(`Fetching Schedule for ${date}...`);
+            const { data: sessions, error: sErr } = await sb
                 .from('fact_daily_session')
                 .select('*')
                 .eq('date', date);
             
-            if (sErr) throw sErr;
+            if (sErr) throw new Error("Supabase Query Error: " + sErr.message);
 
+            updateStatus("Processing Data...");
             processSupabaseData(sessions, date);
 
         } catch (e) {
-            alert("Error loading data: " + e.message);
+            showError("Error: " + e.message);
             console.error(e);
-            document.getElementById('loading-overlay').style.display = 'none';
+            // Keep overlay visible to show error
         }
     }
 
