@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <title>BC Timeline (Supabase)</title>
+  <script type="text/javascript" src="https://unpkg.com/vis-timeline@latest/standalone/umd/vis-timeline-graph2d.min.js"></script>
+  <link href="https://unpkg.com/vis-timeline@latest/styles/vis-timeline-graph2d.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+  <!-- SUPABASE SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  
+  <style>
+    /* Global & Layout */
+    body, html { height: 100%; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8f9fa; overflow: hidden; display: flex; flex-direction: column; }
+    
+    .header-section { padding: 8px 15px; background: white; border-bottom: 1px solid #ddd; box-shadow: 0 2px 5px rgba(0,0,0,0.05); z-index: 10; flex-shrink: 0; }
+    
+    /* [FIXED] Visualization Area */
+    #visualization { 
+        flex-grow: 1; 
+        width: 100%; 
+        background-color: white; 
+        position: relative; 
+        overflow: hidden; /* ให้ Vis.js จัดการ scroll */
+    }
+
+    /* [FIXED] Sim Controls Bar - อยู่ใน Flow ไม่บัง */
+    #sim-controls { 
+        background: #263238; 
+        color: white; 
+        padding: 12px 20px; 
+        box-shadow: 0 -2px 10px rgba(0,0,0,0.2); 
+        z-index: 15000; 
+        display: none; /* Flex when active */
+        align-items: center; 
+        justify-content: center; 
+        gap: 30px; 
+        font-family: 'Segoe UI', sans-serif;
+        border-top: 3px solid #E040FB;
+        flex-shrink: 0; /* ห้ามหด */
+        width: 100%;
+        box-sizing: border-box;
+    }
+    
+    /* ... (CSS อื่นๆ เหมือนเดิม) ... */
+    #loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255, 255, 255, 0.9); z-index: 20000; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+    .spinner { border: 5px solid #f3f3f3; border-top: 5px solid #3498db; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .loading-text { margin-top: 15px; color: #555; font-size: 16px; font-weight: bold; }
+
+    .vis-item { border-right: 2px solid white !important; border-left: 2px solid white !important; border-radius: 0px !important; opacity: 0.95; height: 40px !important; display: flex !important; align-items: center; justify-content: center; cursor: pointer; } 
+    .vis-item .vis-item-content { padding: 0 5px; font-size: 11px; font-weight: 600; line-height: 1.2; text-align: center; width: 100%; }
+    
+    .vis-item.group-thesaban { background-color: #E91E63; border-color: #C2185B; color: white; }
+    .vis-item.group-obec3 { background-color: #FF9800; border-color: #F57C00; color: white; }
+    .vis-item.group-private { background-color: #2196F3; border-color: #1976D2; color: white; }
+    .vis-item.group-obec-south { background-color: #795548; border-color: #5D4037; color: white; }
+    .vis-item.group-other { background-color: #9E9E9E; border-color: #616161; color: white; }
+    
+    .vis-item.status-cancelled { background-color: #ffffff !important; color: #d32f2f !important; border: 2px dashed #d32f2f !important; }
+    .vis-item.status-covered { border-top: 4px solid #00E676 !important; box-shadow: 0 0 5px rgba(0,0,0,0.2); }
+    .vis-item.status-simulated { background-color: rgba(156, 39, 176, 0.9) !important; border: 2px dashed #7B1FA2 !important; color: white !important; box-shadow: 0 4px 8px rgba(0,0,0,0.3); z-index: 1000; }
+    .vis-item.status-sim-cancelled { background-color: #eeeeee !important; border: 2px dotted #aaa !important; color: #888 !important; opacity: 0.5; text-decoration: line-through; pointer-events: none; }
+    .vis-item.sim-moved-original { opacity: 0.3; text-decoration: line-through; background-color: #ccc !important; border-color: #aaa !important; pointer-events: none; }
+
+    .vis-time-axis .vis-grid.vis-minor { border-color: #f0f0f0; }
+    .vis-time-axis .vis-text.vis-major { display: none; } 
+    .vis-time-axis .vis-text.vis-minor { transform: rotate(-90deg); transform-origin: left bottom; white-space: nowrap; margin-top: -5px; margin-left: 2px; font-size: 10px; color: #666; }
+
+    .vis-custom-time.mouse-ruler { background-color: rgba(255, 0, 0, 0.5); width: 1px; pointer-events: none; z-index: 100; }
+    .vis-custom-time.mouse-ruler .vis-custom-time-marker { display: none; }
+    #mouse-tooltip { position: absolute; background: rgba(255, 255, 255, 0.95); border: 1px solid #d32f2f; color: #d32f2f; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; pointer-events: none; display: none; z-index: 10000; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.15); transform: translate(15px, 15px); }
+    .vis-custom-time.current-ruler { background-color: #2962FF; width: 2px; pointer-events: none; z-index: 99; }
+    .vis-custom-time.current-ruler .vis-custom-time-marker { background-color: #2962FF; color: white; font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 4px; top: 0px; white-space: nowrap; display: block !important; }
+
+    .controls-row { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+    .left-group { display: flex; align-items: center; gap: 10px; }
+    h2 { margin: 0; color: #333; font-size: 1.1rem; }
+    input[type="date"] { padding: 6px; border: 1px solid #ccc; border-radius: 4px; }
+    .btn { padding: 6px 12px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; font-weight: bold; font-size: 13px; }
+    .btn:hover { background: #0056b3; }
+    .btn-log { background: #6f42c1; color: white; }
+    .btn-zoom { background: #6c757d; color: white; padding: 6px 10px; font-size: 14px; }
+    .toggle-container { display: flex; align-items: center; gap: 5px; font-size: 13px; margin-left: 10px; border-left: 1px solid #ccc; padding-left: 10px; }
+    .legend { display: flex; gap: 10px; font-size: 11px; flex-wrap: wrap; margin-top: 5px; }
+    .legend-item { display: flex; align-items: center; gap: 3px; }
+    .color-box { width: 10px; height: 10px; border-radius: 2px; }
+
+    .sim-status { display: flex; flex-direction: column; align-items: center; }
+    .sim-status-title { font-weight: bold; font-size: 16px; color: #E040FB; text-transform: uppercase; letter-spacing: 1px; }
+    .sim-status-desc { font-size: 12px; color: #ccc; margin-top: 3px; }
+    
+    .btn-finish-sim { background: #00E676; border: none; color: #004D40; padding: 10px 25px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 14px; transition: 0.2s; display: flex; align-items: center; gap: 8px; }
+    .btn-finish-sim:hover { background: #00C853; transform: scale(1.05); }
+    
+    .btn-clear-sim { background: transparent; border: 1px solid #FF5252; color: #FF5252; padding: 8px 20px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 13px; transition: 0.2s; }
+    .btn-clear-sim:hover { background: rgba(255, 82, 82, 0.1); }
+
+    .modal { display: none; position: fixed; z-index: 5000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(2px); }
+    .modal-content { background-color: #fefefe; margin: 2% auto; padding: 25px; border: 1px solid #888; width: 90%; max-width: 600px; border-radius: 8px; max-height: 90vh; overflow-y: auto; position: relative; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+    .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; margin-left: 10px;}
+    .log-header { border-bottom: 1px solid #eee; margin-bottom: 15px; padding-bottom: 10px; }
+    .log-header h2 { margin: 0; font-size: 20px; color: #333; }
+    .log-meta { font-size: 12px; color: #666; margin-top: 5px; }
+    
+    .log-section { margin-bottom: 20px; background: #fcfcfc; border-radius: 6px; padding: 15px; border: 1px solid #eee; }
+    .log-section h3 { margin: 0 0 12px 0; font-size: 15px; border-bottom: 2px solid #eee; padding-bottom: 8px; color: #444; }
+    .log-item { padding: 10px 0; border-bottom: 1px dashed #e0e0e0; font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+    .log-item:last-child { border-bottom: none; }
+    .badge-cancel { color: #d32f2f; background: #ffebee; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; }
+    .badge-cover { color: #00695c; background: #e0f2f1; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; }
+
+    .sim-header { background: #e3f2fd; padding: 12px; border-radius: 6px; margin-bottom: 15px; border: 1px solid #90caf9; }
+    .sim-header strong { color: #1565C0; display: block; margin-bottom: 3px; font-size: 14px;}
+    .sim-note { font-size: 11px; color: #E65100; background: #FFF3E0; padding: 8px; border-radius: 4px; margin-top: 8px; border-left: 4px solid #FF9800; display: flex; align-items: center; gap: 5px; }
+
+    .teacher-card { display: flex; justify-content: space-between; align-items: center; padding: 12px; margin-bottom: 8px; background: white; border: 1px solid #e0e0e0; border-radius: 6px; transition: 0.2s; }
+    .teacher-card.absent { background: #fafafa !important; border: 1px solid #eee; color: #999; }
+    .teacher-card.absent .t-name { color: #777; }
+    .teacher-card:hover { border-color: #2196F3; background: #f0f7ff !important; transform: translateY(-1px); box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+    
+    .teacher-info { display: flex; flex-direction: column; }
+    .t-name { font-weight: bold; font-size: 14px; color: #333; }
+    .t-type { font-size: 11px; color: #666; display: flex; align-items: center; gap: 5px; margin-top: 2px;}
+    .t-qual { font-size: 10px; color: #2E7D32; background: #E8F5E9; padding: 2px 6px; border-radius: 10px; font-weight: bold; }
+    
+    .t-workload { font-size: 12px; margin-right: 20px; font-weight: 500; text-align: right; min-width: 80px; }
+    .load-low { color: #388E3C; }
+    .load-med { color: #F57C00; }
+    .load-high { color: #D32F2F; font-weight: bold; }
+    .warning-text { color: #D32F2F; font-size: 10px; font-weight: bold; margin-top: 4px; display:flex; align-items:center; gap:3px; background:#ffebee; padding:2px 5px; border-radius:4px; width:fit-content;}
+    
+    .btn-select { background: #28a745; color: white; border: none; padding: 6px 15px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: bold; }
+    .btn-select:hover { background: #218838; }
+    .btn-sim-cancel { background: #e53935; color: white; border: none; padding: 6px 15px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; }
+    .btn-sim-cancel:hover { background: #c62828; }
+
+    .loading-sim { text-align: center; color: #666; padding: 30px; font-style: italic;}
+    .modal-actions { margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end; border-top: 1px solid #eee; padding-top: 15px; }
+    .btn-action { padding: 8px 16px; border-radius: 4px; font-size: 12px; cursor: pointer; border: 1px solid #ccc; background: white; display: flex; align-items: center; gap: 5px; }
+    .btn-action:hover { background: #f0f0f0; border-color: #bbb; }
+  </style>
+</head>
+<body>
+
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <div class="loading-text">Loading Timetable...</div>
+  </div>
+
+  <div class="header-section">
+    <div class="controls-row">
+      <div class="left-group">
+        <h2>📅 Master Timetable</h2>
+        <input type="date" id="datePicker">
+        <button class="btn" onclick="manualReload()">Refresh</button>
+        <div class="toggle-container">
+            <input type="checkbox" id="autoRefresh" onchange="toggleAutoRefresh()">
+            <label for="autoRefresh">Auto (1m)</label>
+        </div>
+      </div>
+      
+      <div class="left-group">
+        <button class="btn btn-zoom" onclick="zoom(-0.2)">➕</button>
+        <button class="btn btn-zoom" onclick="zoom(0.2)">➖</button>
+        <button class="btn" style="background:#6c757d;" onclick="resetZoom()">Reset</button>
+        <button class="btn btn-log" onclick="showLogs()">📋 View Logs (<span id="logCount">0</span>)</button>
+      </div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item"><div class="color-box" style="background:#E91E63;"></div>Thesaban</div>
+        <div class="legend-item"><div class="color-box" style="background:#FF9800;"></div>OBEC3</div>
+        <div class="legend-item"><div class="color-box" style="background:#2196F3;"></div>Private</div>
+        <div class="legend-item"><div class="color-box" style="background:#795548;"></div>OBEC South</div>
+        <div class="legend-item"><div class="color-box" style="background:white; border:1px dashed #d32f2f;"></div>Cancelled</div>
+        <div class="legend-item"><div class="color-box" style="background:#eee; border-top:3px solid #00E676;"></div>Covered</div>
+        <div class="legend-item">| 👔 Full-time | ⏳ Part-time</div>
+        <div class="legend-item"><div class="color-box" style="background:rgba(156, 39, 176, 0.8);"></div>Simulated</div>
+        <div class="legend-item"><div class="color-box" style="background:#eee; border:2px dotted #aaa;"></div>Sim-Cancel</div>
+    </div>
+  </div>
+
+  <div id="visualization"></div>
+  <div id="mouse-tooltip">00:00</div>
+  
+  <div id="sim-controls">
+      <div class="sim-status">
+          <span class="sim-status-title">🔮 Simulation Mode Active</span>
+          <span class="sim-status-desc">Changes are temporary. Click items to simulate moves.</span>
+      </div>
+      <button class="btn-finish-sim" onclick="finishSimulation()">📋 Finish & Get Summary</button>
+      <button class="btn-clear-sim" onclick="clearSimulation()">✖ Exit & Reset</button>
+  </div>
+
+  <!-- Log Modal -->
+  <div id="logModal" class="modal">
+    <div class="modal-content" id="modalCaptureTarget">
+      <div class="log-header">
+          <span class="close" onclick="closeModal('logModal')">&times;</span>
+          <h2 id="modalTitle">Daily Report</h2>
+          <div class="log-meta">Date: <span id="reportDate"></span> | Last updated: <span id="lastUpdated"></span></div>
+      </div>
+      <div id="logBody">Loading...</div>
+      <div class="modal-actions" data-html2canvas-ignore="true">
+          <button class="btn-action" onclick="copyLogText()">📋 Copy Text</button>
+          <button class="btn-action" onclick="exportLogImage()">📸 Save Image</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Simulation Modal -->
+  <div id="simModal" class="modal">
+    <div class="modal-content">
+      <div class="log-header">
+          <span class="close" onclick="closeModal('simModal')">&times;</span>
+          <h2>🛠️ Cover Simulator</h2>
+      </div>
+      <div id="simBody">
+          <div class="loading-sim">🔍 Checking availability...</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --------------------------------------------------------
+    // SETUP SUPABASE
+    // --------------------------------------------------------
+    const SUPABASE_URL = "https://cgznmxcecljfybcgujjb.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ";
+    const supabase = (window.supabase) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+
+    var timeline;
+    var visItemsDataSet;
+    var groupsDataSet;
+    var currentLogData = null;
+    var autoRefreshInterval;
+    var currentTimer;
+    
+    // Simulation Vars
+    var isSimMode = false;
+    var currentSimTarget = null;
+    var simState = { removed: [], added: [] }; 
+    var simulatedItemIds = []; 
+    var simLog = [];
+    var visibleTeachersCache = new Set();
+    
+    // Cache Master Data
+    var cachedUsers = null;
+    var cachedSchools = null;
+
+    window.onload = function() {
+        var today = new Date();
+        var bkkOffset = 7 * 60; 
+        var localOffset = today.getTimezoneOffset(); // in minutes. e.g. -420 for BKK
+        // We just want YYYY-MM-DD
+        document.getElementById('datePicker').value = today.toISOString().slice(0, 10);
+        
+        loadData();
+        setInterval(updateCurrentTimeRuler, 60000);
+    };
+
+    function manualReload() { loadData(); }
+
+    function toggleAutoRefresh() {
+        var checkbox = document.getElementById('autoRefresh');
+        if (checkbox.checked) {
+            autoRefreshInterval = setInterval(loadData, 30000); 
+        } else {
+            clearInterval(autoRefreshInterval);
+        }
+    }
+
+    async function fetchMasterData() {
+        // ... (Same as before)
+        if (cachedUsers) return; 
+
+        const { data: users, error: uErr } = await supabase.from('dim_user').select('*');
+        if (uErr) console.error("Error loading users:", uErr);
+        
+        let schools = [];
+        try {
+            const { data: sData, error: sErr } = await supabase.from('dim_school').select('*');
+            if (!sErr) schools = sData;
+        } catch(e) { console.log("Skipping school load"); }
+
+        cachedUsers = {};
+        if (users) {
+            users.forEach(u => {
+                let isFT = (String(u.user_type) === '210');
+                let fname = u.first_name_en || u.first_name_th || "";
+                let lname = u.last_name_en || u.last_name_th || "";
+                let initial = lname ? lname.charAt(0) + "." : "";
+                
+                cachedUsers[String(u.braincloud_id)] = {
+                    name: `${fname} ${initial}`,
+                    isFullTime: isFT
+                };
+            });
+        }
+
+        cachedSchools = {};
+        if (schools) {
+            schools.forEach(s => {
+                cachedSchools[String(s.school_id)] = {
+                    code: s.school_name || s.school_code || s.id, 
+                    group: s.region_group || s.school_group || "Other"
+                };
+            });
+        }
+    }
+
+    async function loadData() {
+        if(isSimMode) return; 
+        document.getElementById('loading-overlay').style.display = 'flex';
+        var date = document.getElementById('datePicker').value;
+
+        try {
+            if (!supabase) throw new Error("Supabase client not initialized");
+
+            await fetchMasterData(); // Ensure users/schools loaded
+
+            const { data: sessions, error: sErr } = await supabase
+                .from('fact_daily_session')
+                .select('*')
+                .eq('date', date);
+            
+            if (sErr) throw sErr;
+
+            processSupabaseData(sessions, date);
+
+        } catch (e) {
+            alert("Error loading data: " + e.message);
+            console.error(e);
+            document.getElementById('loading-overlay').style.display = 'none';
+        }
+    }
+
+    function processSupabaseData(rows, targetDate) {
+        let items = [];
+        let groups = [];
+        let visibleTeachers = new Set();
+        let logs = { cancelled: [], covered: [], stats: { total: 0, cancel: 0, cover: 0 }, generatedAt: new Date().toLocaleTimeString() };
+        
+        if (rows && rows.length > 0) {
+            rows.forEach(r => {
+                let actualId = String(r.actual_teacher_id).trim();
+                let originalId = String(r.original_teacher_id).trim();
+                
+                if (cachedUsers[actualId]) visibleTeachers.add(actualId);
+                if (cachedUsers[originalId]) visibleTeachers.add(originalId);
+
+                if (!r.start_time || !r.end_time) return;
+
+                let startTime = r.start_time.substring(0, 5);
+                let endTime = r.end_time.substring(0, 5);
+                let status = String(r.status || "");
+                let isCancelled = status.startsWith("Cancelled");
+                
+                logs.stats.total++;
+
+                let schoolId = String(r.school_id);
+                let schoolInfo = cachedSchools[schoolId] || { code: schoolId, group: 'Other' };
+                let grp = (schoolInfo.group || "").toLowerCase();
+                let colorClass = 'group-other';
+                if (grp.includes('thesaban')) colorClass = 'group-thesaban';
+                else if (grp.includes('obec 3')) colorClass = 'group-obec3';
+                else if (grp.includes('private')) colorClass = 'group-private';
+                else if (grp.includes('obec south')) colorClass = 'group-obec-south';
+
+                let innerContent = r.class_name || r.class || ""; 
+                let finalClass = colorClass;
+                let tooltip = `School: ${schoolInfo.code}\nTime: ${startTime}-${endTime}`;
+
+                let isCover = (status === "Substituted") || 
+                              (status === "Normal" && originalId && actualId && actualId !== originalId);
+
+                if (isCancelled) {
+                    finalClass = 'status-cancelled';
+                    let cancelBy = status.includes("School") ? "School" : "BC";
+                    innerContent = `❌ ${innerContent} <div style="font-size:9px; margin-top:2px;">(by ${cancelBy})</div>`;
+                    let tName = cachedUsers[originalId] ? cachedUsers[originalId].name : originalId;
+                    logs.cancelled.push({
+                        start: startTime, end: endTime, school: schoolInfo.code,
+                        class: r.class_name, teacher: tName, by: cancelBy
+                    });
+                    logs.stats.cancel++;
+                } else if (isCover) {
+                    finalClass += ' status-covered';
+                    let orgName = cachedUsers[originalId] ? cachedUsers[originalId].name : originalId;
+                    let actName = cachedUsers[actualId] ? cachedUsers[actualId].name : actualId;
+                    innerContent = `🔄 ${innerContent} <div style="font-size:9px; margin-top:2px; opacity:0.9;">(Cover: ${orgName})</div>`;
+                    tooltip += `\nCovering for: ${orgName}`;
+                    logs.covered.push({
+                        start: startTime, end: endTime, school: schoolInfo.code,
+                        class: r.class_name, actual: actName, original: orgName
+                    });
+                    logs.stats.cover++;
+                }
+
+                items.push({
+                    id: r.session_id,
+                    group: actualId,
+                    start: `${targetDate}T${startTime}:00`,
+                    end: `${targetDate}T${endTime}:00`,
+                    content: `<div class="content-wrapper">${innerContent}</div>`,
+                    title: tooltip,
+                    className: finalClass,
+                    type: 'range'
+                });
+            });
+        }
+
+        visibleTeachers.forEach(tid => {
+            let u = cachedUsers[tid] || { name: `(${tid})`, isFullTime: false };
+            let nameHtml = u.isFullTime 
+                ? `<span style="color:#0D47A1; font-weight:bold;">👔 ${u.name}</span>`
+                : `<span style="color:#E65100; font-weight:bold;">⏳ ${u.name}</span>`;
+            
+            groups.push({
+                id: tid,
+                content: nameHtml,
+                style: "font-size: 13px; padding: 5px;",
+                _isFT: u.isFullTime 
+            });
+        });
+
+        // Add ALL teachers to the groups even if they have no class, for Simulation purposes?
+        // Actually for visualization we usually only show active ones. 
+        // But for simulation "Available Teachers" logic, we use cachedUsers anyway.
+
+        groups.sort((a, b) => {
+            if (a._isFT !== b._isFT) return a._isFT ? -1 : 1; 
+            let na = a.content.replace(/<[^>]*>/g, '').trim();
+            let nb = b.content.replace(/<[^>]*>/g, '').trim();
+            return na.localeCompare(nb);
+        });
+
+        currentLogData = logs; 
+        visibleTeachersCache = visibleTeachers; 
+
+        drawTimeline({ groups: groups, items: items, logs: logs }, targetDate);
+    }
+
+    function drawTimeline(data, selectedDate, silent) {
+      document.getElementById('loading-overlay').style.display = 'none';
+      
+      currentLogData = data.logs;
+      document.getElementById('logCount').innerText = (data.logs.stats.cancel + data.logs.stats.cover);
+      document.getElementById('reportDate').innerText = selectedDate;
+      document.getElementById('lastUpdated').innerText = data.logs.generatedAt;
+
+      var container = document.getElementById('visualization');
+      visItemsDataSet = new vis.DataSet(data.items);
+      var groups = new vis.DataSet(data.groups);
+      groupsDataSet = groups;
+
+      if (silent && timeline) {
+          if (isSimMode) {
+              console.log("Simulating... skipping auto-refresh update.");
+              return;
+          }
+          timeline.setData({ items: visItemsDataSet, groups: groups });
+          return;
+      }
+
+      var minTime = selectedDate + 'T07:50:00'; 
+      var maxTime = selectedDate + 'T17:10:00'; 
+
+      var options = {
+        start: selectedDate + 'T07:50:00',
+        end: selectedDate + 'T17:10:00',
+        min: minTime, max: maxTime,
+        height: '100%', margin: { item: 0, axis: 10 }, stack: true,
+        zoomable: false, moveable: true, orientation: 'top', verticalScroll: true,
+        timeAxis: { scale: 'minute', step: 10 },
+        showMajorLabels: false,
+        format: { minorLabels: { minute: 'HH:mm', hour: 'HH:mm' } }
+      };
+
+      if (timeline) timeline.destroy();
+      timeline = new vis.Timeline(container, visItemsDataSet, groups, options);
+      
+      timeline.on('select', function (properties) {
+          var selectedIds = properties.items;
+          if (selectedIds.length > 0) {
+              var id = String(selectedIds[0]);
+              
+              var item = visItemsDataSet.get(id);
+              if (id.startsWith('sim-')) {
+                  if(confirm("ต้องการยกเลิกการจำลองคาบนี้และคืนค่าเดิมใช่หรือไม่?")) {
+                      removeSingleSimulation(id);
+                  }
+                  timeline.setSelection([]);
+                  return;
+              }
+              
+              if (item && item.className && item.className.includes('sim-moved-original')) {
+                  timeline.setSelection([]);
+                  return;
+              }
+              
+              if (document.getElementById('simModal').style.display === "block") return;
+
+              if (!isSimMode) {
+                  var confirmMsg = "Do you want to enter Simulation Mode?\n\n⚠️ Changes here are temporary and will not affect the database.";
+                  if (confirm(confirmMsg)) {
+                      startSimulationMode();
+                      openSimulation(id, selectedDate);
+                  } else {
+                      timeline.setSelection([]);
+                  }
+              } else {
+                  openSimulation(id, selectedDate);
+              }
+              timeline.setSelection([]);
+          }
+      });
+
+      timeline.addCustomTime(new Date(), 'mouse-ruler');
+      var todayStr = new Date().toISOString().split('T')[0];
+      if (selectedDate === todayStr) {
+          timeline.addCustomTime(new Date(), 'current-ruler');
+          updateCurrentTimeRuler(); 
+          if (currentTimer) clearInterval(currentTimer);
+          currentTimer = setInterval(updateCurrentTimeRuler, 1000);
+      } else {
+          if (currentTimer) clearInterval(currentTimer);
+      }
+
+      container.addEventListener('mousemove', function (event) {
+          var props = timeline.getEventProperties(event);
+          timeline.setCustomTime(props.time, 'mouse-ruler');
+          var tooltip = document.getElementById('mouse-tooltip');
+          var timeStr = props.time.toTimeString().substring(0, 5); 
+          tooltip.innerText = timeStr;
+          tooltip.style.display = 'block';
+          tooltip.style.left = (event.pageX + 15) + 'px';
+          tooltip.style.top = (event.pageY + 15) + 'px';
+      });
+      container.addEventListener('mouseleave', function() {
+          document.getElementById('mouse-tooltip').style.display = 'none';
+      });
+      
+      if (data.items.length === 0 && !silent) alert("No data found for " + selectedDate);
+    }
+
+    function startSimulationMode() {
+        isSimMode = true;
+        document.getElementById('sim-controls').style.display = 'flex';
+        if (timeline) timeline.redraw();
+        if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+    }
+
+    // [MODIFIED] Client-Side Simulation Logic
+    function openSimulation(sessionId, date) {
+        var modal = document.getElementById('simModal');
+        var body = document.getElementById('simBody');
+        modal.style.display = "block";
+        body.innerHTML = '<div class="loading-sim">🔍 Finding substitutes...</div>';
+
+        setTimeout(() => {
+            // 1. Get Target
+            var targetItem = visItemsDataSet.get(sessionId);
+            if (!targetItem) {
+                 renderSimulation(JSON.stringify({ error: "Session not found" }));
+                 return;
+            }
+
+            // Parse text content strip tags
+            var div = document.createElement('div');
+            div.innerHTML = targetItem.content;
+            var className = div.textContent; 
+
+            // Parse Timings
+            var tStartStr = targetItem.start.split('T')[1].substring(0, 5); 
+            var tEndStr = targetItem.end.split('T')[1].substring(0, 5);
+            var tStartVal = parseInt(tStartStr.replace(':',''));
+            var tEndVal = parseInt(tEndStr.replace(':',''));
+
+            var teacherId = targetItem.group;
+            
+            // 2. Logic
+            var suggestions = [];
+            var allItems = visItemsDataSet.get(); 
+
+            // If we have cachedUsers, use it
+            if(cachedUsers) {
+                Object.keys(cachedUsers).forEach(uid => {
+                    // if (uid === teacherId) return; // Optional: include self? No.
+
+                    var user = cachedUsers[uid];
+                    var isBusy = false;
+                    var workload = 0;
+
+                    // Check schedule
+                    allItems.forEach(item => {
+                        if (String(item.group) === uid) {
+                            if (item.className && item.className.includes('status-sim-cancelled')) return; 
+
+                            workload++;
+                            
+                            // Check Overlap
+                            var iStart = item.start.split('T')[1].substring(0, 5);
+                            var iEnd = item.end.split('T')[1].substring(0, 5);
+                            var iStartVal = parseInt(iStart.replace(':',''));
+                            var iEndVal = parseInt(iEnd.replace(':',''));
+
+                            // (StartA < EndB) and (EndA > StartB)
+                            if (tStartVal < iEndVal && tEndVal > iStartVal) {
+                                isBusy = true;
+                            }
+                        }
+                    });
+
+                    if (!isBusy) {
+                        suggestions.push({
+                            id: uid,
+                            name: user.name,
+                            type: user.isFullTime ? 'Full-time' : 'Part-time',
+                            workload: workload,
+                            qualification: '', 
+                            isAbsent: false 
+                        });
+                    }
+                });
+            }
+
+            // Sort
+            suggestions.sort((a, b) => {
+                 if (a.type !== b.type) return a.type === 'Full-time' ? -1 : 1;
+                 if (a.workload !== b.workload) return a.workload - b.workload;
+                 return a.name.localeCompare(b.name);
+            });
+
+            var response = {
+                target: {
+                    id: sessionId,
+                    teacherId: teacherId,
+                    class: className,
+                    start: tStartStr,
+                    end: tEndStr,
+                    school: "" // Ideally find school info from id, but not critical
+                },
+                isThesaban: false,
+                suggestions: suggestions
+            };
+            
+            renderSimulation(JSON.stringify(response));
+
+        }, 100);
+    }
+
+    function renderSimulation(jsonString) {
+        var data = JSON.parse(jsonString);
+        var body = document.getElementById('simBody');
+        
+        if (data.error) {
+            body.innerHTML = `<p style="color:red; text-align:center;">${data.error}</p>`;
+            return;
+        }
+
+        currentSimTarget = data.target;
+
+        var html = `
+            <div class="sim-header">
+                <strong>Current Selection:</strong>
+                <div>${data.target.class}</div>
+                <div style="font-size:12px; color:#555;">${data.target.start} - ${data.target.end}</div>
+                <div style="font-size:12px; color:#555;">Original: ${getTeacherName(data.target.teacherId)}</div>
+            </div>
+            
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <h3 style="font-size:14px; margin:0;">Available Teachers:</h3>
+                <button class="btn-sim-cancel" onclick="applyCancelSimulation()">🗑️ Simulate Cancel</button>
+            </div>
+        `;
+
+        // Only show top 50 to avoid lag if list is huge
+        var limit = 50;
+        
+        if (data.suggestions.length === 0) {
+            html += "<p style='text-align:center; color:#d32f2f;'>No teachers available.</p>";
+        } else {
+            html += '<div style="max-height:60vh; overflow-y:auto;">';
+            data.suggestions.slice(0, limit).forEach((t, index) => {
+                var rankColor = (index < 3 && !t.isAbsent) ? '#e8f5e9' : 'white';
+                var icon = t.type === 'Full-time' ? '👔' : '⏳';
+                var typeColor = t.type === 'Full-time' ? '#0D47A1' : '#E65100';
+                var cardClass = t.isAbsent ? 'teacher-card absent' : 'teacher-card';
+                var warningHtml = t.isAbsent ? '<div class="warning-text">⚠️ No active classes today.</div>' : '';
+                var wl = t.workload;
+                var wlClass = 'load-low';
+                var wlText = `${wl} classes`;
+                if (wl > 4) { wlClass = 'load-med'; }
+                if (wl > 6) { wlClass = 'load-high'; wlText += ' (High)'; }
+                var qualHtml = t.qualification ? `<span class="t-qual">🎓 ${t.qualification}</span>` : '';
+
+                var safeName = t.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                var safeId = t.id.replace(/'/g, "\\'");
+
+                html += `
+                <div class="${cardClass}" style="background:${rankColor}">
+                    <div class="teacher-info">
+                        <span class="t-name">${index + 1}. ${t.name}</span>
+                        <div style="display:flex; gap:5px; align-items:center; flex-wrap:wrap;">
+                            <span class="t-type" style="color:${typeColor}">${icon} ${t.type}</span>
+                            ${qualHtml}
+                        </div>
+                        ${warningHtml}
+                    </div>
+                    <div style="text-align:right;">
+                        <div class="t-workload ${wlClass}">Today: ${wlText}</div>
+                        <button class="btn-select" style="margin-top:5px;" onclick="applySimulation('${safeId}', '${safeName}')">Select</button>
+                    </div>
+                </div>`;
+            });
+            html += '</div>';
+        }
+        body.innerHTML = html;
+    }
+
+    function getTeacherName(id) {
+        if (!groupsDataSet) return id;
+        var g = groupsDataSet.get(id);
+        if (g && g.content) {
+            var tempDiv = document.createElement("div");
+            tempDiv.innerHTML = g.content;
+            var text = tempDiv.textContent || tempDiv.innerText || "";
+            return text.replace('👔', '').replace('⏳', '').trim();
+        }
+        return id;
+    }
+
+    function formatTime(t) {
+        if(!t) return "";
+        return t.substring(0, 5);
+    }
+
+    function applySimulation(teacherId, teacherName) {
+        try {
+            if (!currentSimTarget || !visItemsDataSet) return;
+
+            var simId = 'sim-' + new Date().getTime();
+            var date = document.getElementById('datePicker').value;
+            
+            visItemsDataSet.add({
+                id: simId,
+                group: teacherId,
+                start: date + 'T' + currentSimTarget.start,
+                end: date + 'T' + currentSimTarget.end,
+                content: `🔮 ${currentSimTarget.class} <div style='font-size:9px'>(Simulated)</div>`,
+                className: 'status-simulated', 
+                type: 'range'
+            });
+
+            var originalItem = visItemsDataSet.get(currentSimTarget.id);
+            if (originalItem) {
+                visItemsDataSet.update({
+                    id: currentSimTarget.id,
+                    className: originalItem.className + ' sim-moved-original'
+                });
+            }
+
+            simState.removed.push(currentSimTarget.id);
+            simState.added.push({ teacherId: teacherId, start: currentSimTarget.start, end: currentSimTarget.end });
+            simulatedItemIds.push({ simId: simId, originalId: currentSimTarget.id });
+            
+            var originalTeacherName = getTeacherName(currentSimTarget.teacherId);
+            var timeRange = formatTime(currentSimTarget.start) + '-' + formatTime(currentSimTarget.end);
+            var logText = `Assign **${teacherName}** to cover **${currentSimTarget.class}** (${timeRange}) instead of **${originalTeacherName}**`;
+            
+            simLog.push({ id: simId, text: logText });
+
+        } catch (e) {
+            console.error(e);
+            alert("Error: " + e.message);
+        } finally {
+            closeModal('simModal');
+        }
+    }
+
+    function applyCancelSimulation() {
+        try {
+            if (!currentSimTarget || !visItemsDataSet) return;
+
+            var originalItem = visItemsDataSet.get(currentSimTarget.id);
+            if (originalItem) {
+                visItemsDataSet.update({
+                    id: currentSimTarget.id,
+                    className: originalItem.className + ' status-sim-cancelled'
+                });
+            }
+
+            simState.removed.push(currentSimTarget.id);
+            var cancelSimId = 'cancel-' + new Date().getTime();
+            simulatedItemIds.push({ simId: cancelSimId, originalId: currentSimTarget.id });
+            
+            var originalTeacherName = getTeacherName(currentSimTarget.teacherId);
+            var timeRange = formatTime(currentSimTarget.start) + '-' + formatTime(currentSimTarget.end);
+            var logText = `Cancel class **${currentSimTarget.class}** (${timeRange}) of **${originalTeacherName}**`;
+            
+            simLog.push({ id: cancelSimId, text: logText });
+
+        } catch (e) {
+            console.error(e);
+        } finally {
+            closeModal('simModal');
+        }
+    }
+
+    function removeSingleSimulation(simId) {
+        var simEntryIndex = simulatedItemIds.findIndex(s => s.simId === simId);
+        if (simEntryIndex === -1) return;
+        var simEntry = simulatedItemIds[simEntryIndex];
+
+        if (!simId.startsWith('cancel-')) {
+            visItemsDataSet.remove(simId);
+        }
+
+        var item = visItemsDataSet.get(simEntry.originalId);
+        if (item && item.className) {
+            var originalClass = item.className.replace(' sim-moved-original', '').replace(' status-sim-cancelled', '');
+            visItemsDataSet.update({ id: simEntry.originalId, className: originalClass });
+        }
+
+        var removedIdx = simState.removed.indexOf(simEntry.originalId);
+        if (removedIdx > -1) simState.removed.splice(removedIdx, 1);
+        
+        var logIdx = simLog.findIndex(l => l.id === simId);
+        if (logIdx > -1) simLog.splice(logIdx, 1);
+
+        simulatedItemIds.splice(simEntryIndex, 1);
+
+        if (simulatedItemIds.length === 0) {
+            clearSimulation();
+        }
+    }
+
+    function finishSimulation() {
+        var modal = document.getElementById('logModal');
+        var body = document.getElementById('logBody');
+        var title = document.getElementById('modalTitle');
+        
+        title.innerText = "📝 Simulation To-Do List";
+        document.getElementById('reportDate').innerText = document.getElementById('datePicker').value;
+        document.getElementById('lastUpdated').innerText = "Simulation Draft";
+        
+        var html = `<div class="log-section"><h3 style="color:#2E7D32;">Actions Required:</h3>`;
+        
+        if (simLog.length === 0) {
+            html += "<p style='text-align:center; padding:10px;'>No changes simulated.</p>";
+        } else {
+            simLog.forEach((item, i) => {
+                var cleanStep = item.text.replace(/\*\*(.*?)\*\*/g, '<b style="color:#000;">$1</b>');
+                var icon = cleanStep.includes("Cancel") ? "❌" : "🔄";
+                html += `<div class="log-item" style="font-size:14px; padding:8px;">
+                    <span style="margin-right:10px;">${icon}</span><span>${cleanStep}</span>
+                </div>`;
+            });
+        }
+        html += "</div>";
+        body.innerHTML = html;
+        modal.style.display = "block";
+    }
+
+    function clearSimulation() {
+        try {
+            if (!visItemsDataSet) return;
+            var idsToRemove = simulatedItemIds.map(s => s.simId).filter(id => id && !id.startsWith('cancel-'));
+            if (idsToRemove.length > 0) visItemsDataSet.remove(idsToRemove);
+            
+            simulatedItemIds.forEach(s => {
+                var item = visItemsDataSet.get(s.originalId);
+                if (item && item.className) {
+                    var originalClass = item.className.replace(' sim-moved-original', '').replace(' status-sim-cancelled', '');
+                    visItemsDataSet.update({ id: s.originalId, className: originalClass });
+                }
+            });
+            
+            simulatedItemIds = [];
+            simState = { removed: [], added: [] };
+            simLog = []; 
+            isSimMode = false;
+            
+            document.getElementById('sim-controls').style.display = 'none';
+            if (document.getElementById('autoRefresh').checked) toggleAutoRefresh();
+            
+        } catch(e) {
+            console.error("Error clearing simulation:", e);
+        }
+    }
+
+    function updateCustomTimeTitle(id, dateObj) {
+        var timeStr = dateObj.toTimeString().substring(0, 5); 
+        try {
+            var marker = document.querySelector('.vis-custom-time.' + id + ' .vis-custom-time-marker');
+            if (marker) marker.innerText = timeStr;
+        } catch(e) {}
+    }
+
+    function updateCurrentTimeRuler() {
+        var now = new Date();
+        timeline.setCustomTime(now, 'current-ruler');
+        updateCustomTimeTitle('current-ruler', now);
+    }
+
+    function resetZoom() {
+       if (timeline) {
+           var date = document.getElementById('datePicker').value;
+           timeline.setWindow(date + 'T07:50:00', date + 'T17:10:00');
+       }
+    }
+
+    function showLogs() {
+        document.getElementById('modalTitle').innerText = "Daily Report";
+        var modal = document.getElementById('logModal');
+        var body = document.getElementById('logBody');
+        modal.style.display = "block";
+        
+        if (!currentLogData || (currentLogData.cancelled.length === 0 && currentLogData.covered.length === 0)) {
+            body.innerHTML = "<p style='text-align:center; color:#666;'>✅ No issues found.</p>";
+            return;
+        }
+
+        var html = "";
+        if (currentLogData.cancelled.length > 0) {
+            html += `<div class="log-section"><h3>❌ Cancellations (${currentLogData.cancelled.length})</h3>`;
+            currentLogData.cancelled.forEach(item => {
+                html += `<div class="log-item"><span style="flex:1"><b>${item.start}-${item.end}</b> : ${item.class} (${item.teacher})</span><span class="badge-cancel">By ${item.by}</span></div>`;
+            });
+            html += "</div>";
+        }
+        if (currentLogData.covered.length > 0) {
+            html += `<div class="log-section"><h3>🔄 Covered (${currentLogData.covered.length})</h3>`;
+            currentLogData.covered.forEach(item => {
+                html += `<div class="log-item"><span style="flex:0.8"><b>${item.start}-${item.end}</b> : ${item.school} <span style="color:#555; font-size:11px;">(${item.class})</span></span><span style="flex:2; text-align:right; font-size:12px;"><span style="color:#00695c; font-weight:bold;">${item.actual}</span> <span style="color:#666;">(Covering for: ${item.original})</span></span></div>`;
+            });
+            html += "</div>";
+        }
+        body.innerHTML = html;
+    }
+
+    function closeModal(id) {
+        document.getElementById(id).style.display = "none";
+    }
+    
+    function exportLogImage() {
+        var element = document.getElementById("modalCaptureTarget");
+        var clone = element.cloneNode(true);
+        clone.style.position = "absolute"; clone.style.top = "-9999px"; clone.style.left = "0"; clone.style.width = "500px"; clone.style.height = "auto"; clone.style.overflow = "visible"; clone.style.maxHeight = "none"; 
+        var closeBtn = clone.querySelector('.close'); if(closeBtn) closeBtn.style.display = "none";
+        document.body.appendChild(clone);
+        html2canvas(clone, { useCORS: true, allowTaint: true, scrollY: 0, scale: 2 }).then(canvas => {
+            var link = document.createElement('a');
+            link.download = 'Summary_' + document.getElementById('datePicker').value + '.png';
+            link.href = canvas.toDataURL();
+            link.click();
+            document.body.removeChild(clone);
+        });
+    }
+
+    function copyLogText() {
+        var isSimSummary = document.getElementById('modalTitle').innerText.includes("Simulation");
+        var text = "";
+        
+        if (isSimSummary) {
+            text = "📝 Simulation Steps:\n";
+            simLog.forEach((item, i) => { text += `${i+1}. ${item.text.replace(/\*\*/g, '')}\n`; });
+        } else {
+            if (!currentLogData) return;
+            var date = document.getElementById('datePicker').value;
+            text = `📅 Report: ${date}\n\n`;
+            if (currentLogData.cancelled.length > 0) {
+                text += `❌ Cancellations (${currentLogData.cancelled.length}):\n`;
+                currentLogData.cancelled.forEach(item => text += `- ${item.start}-${item.end} ${item.class} (${item.teacher}) [By ${item.by}]\n`);
+                text += "\n";
+            }
+            if (currentLogData.covered.length > 0) {
+                text += `🔄 Covered (${currentLogData.covered.length}):\n`;
+                currentLogData.covered.forEach(item => text += `- ${item.start}-${item.end} ${item.school} (${item.class}): ${item.actual} (Covering for: ${item.original})\n`);
+            }
+        }
+        navigator.clipboard.writeText(text).then(() => { alert("📋 Copied!"); });
+    }
+    
+    window.onclick = function(event) {
+        if (event.target.classList.contains('modal')) event.target.style.display = "none";
+    }
+  </script>
+</body>
+</html>
