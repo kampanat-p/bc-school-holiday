@@ -17,8 +17,8 @@ function syncDailySchedule() {
  */
 function runBackfill() {
   // --- ตั้งค่าช่วงเวลาที่จะ Backfill ---
-  const START_DATE = "2025-04-01"; 
-  const END_DATE =   "2025-04-30"; 
+  const START_DATE = "2025-06-01"; 
+  const END_DATE =   "2025-06-15"; 
   // ----------------------------------
 
   const start = new Date(START_DATE);
@@ -36,8 +36,6 @@ function runBackfill() {
     }
     Utilities.sleep(500); 
   }
-  
-  SpreadsheetApp.getUi().alert("✅ Backfill เสร็จสิ้น!");
 }
 
 
@@ -155,6 +153,10 @@ function saveToDatabase(ss, jsonResponse, TARGET_DATE, mode) {
 
   let newRows = [];
   let updateCount = 0;
+  // [BATCH OPT] Arrays for Supabase Sync
+  let updatesPayload = [];
+  let insertsPayload = [];
+
   const NOW = new Date(); 
   
   if (jsonResponse.sessions) {
@@ -281,11 +283,12 @@ function saveToDatabase(ss, jsonResponse, TARGET_DATE, mode) {
         let rowIdx = prevData.row;
         factSheet.getRange(rowIdx, 1, 1, record.length).setValues([record]);
         updateCount++;
-        // Sync Update to Supabase immediately (or collect in array if volume is high)
-        // For simplicity and realtime-ness:
-        sendToSupabase('fact_daily_session', mapFactSessionToSupabase(record)); 
+        // [BATCH OPT] Add to payload instead of sending immediately
+        updatesPayload.push(mapFactSessionToSupabase(record));
       } else {
         newRows.push(record);
+        // [BATCH OPT] Add to payload
+        insertsPayload.push(mapFactSessionToSupabase(record));
       }
     });
   }
@@ -296,29 +299,21 @@ function saveToDatabase(ss, jsonResponse, TARGET_DATE, mode) {
   }
   
   // ------------------------------------------------------------------------
-  // Supabase Sync (Insert Only for newRows? Or Upsert for all updated?)
-  // Ideally, processSync handles "Update" one by one and "Insert" in batch.
-  // To keep Supabase in sync, we should send BOTH updates and inserts.
-  //
-  // NOTE: For 'newRows', we can batch send. For updates, we did them one by one above.
-  // To be robust, we should gather ALL modified records (both new and updated) and send them efficiently.
+  // Supabase Sync (BATCH MODE)
   // ------------------------------------------------------------------------
+  // Combine all changes (Upsert handles both insert and update)
+  const allPayloads = [...updatesPayload, ...insertsPayload];
   
-  // 1. Gather Updates (We didn't store them above, so let's just log them to Supabase individually inside the loop for now? 
-  // No, that's too slow. Let's create a collection for Supabase Sync.)
-  
-  // Since we already executed the sheet updates, let's reconstruct the payload for everything that was touched.
-  // Actually, 'newRows' is easy. The 'updated' ones are harder because we didn't save them in a list.
-  // Let's rely on 'newRows' for now. For strict synchronization of UPDATES, we need to modify the update loop above.
-
-  // Let's modify the Update Loop above slightly to collect "upsertPayload".
-  // (Since I can't easily edit the loop without big context, I will sync `newRows` here. 
-  //  For full sync, user might need to run a full backfill or I should stick to adding collection logic.)
-  
-  // Let's collect 'newRows' payload first
-  if (newRows.length > 0) {
-     const newPayload = newRows.map(r => mapFactSessionToSupabase(r));
-     sendToSupabase('fact_daily_session', newPayload);
+  if (allPayloads.length > 0) {
+     console.log(`☁️ Syncing ${allPayloads.length} rows to Supabase...`);
+     // Chunking to prevent Payload Too Large
+     const CHUNK_SIZE = 500;
+     for (let i = 0; i < allPayloads.length; i += CHUNK_SIZE) {
+         const chunk = allPayloads.slice(i, i + CHUNK_SIZE);
+         sendToSupabase('fact_daily_session', chunk);
+         // Short sleep to prevent rate limiting
+         Utilities.sleep(100); 
+     }
   }
   
   console.log(`💾 Saved ${TARGET_DATE}: Inserted ${newRows.length}, Updated ${updateCount}`);
@@ -338,7 +333,7 @@ function mapFactSessionToSupabase(r) {
     status: r[8],
     is_payable: r[9],
     last_updated: r[10] instanceof Date ? r[10].toISOString() : r[10],
-    cancelled_at: r[11] instanceof Date ? r[11].toISOString() : r[11]
+    cancelled_at: (r[11] instanceof Date) ? r[11].toISOString() : (r[11] || null)
   };
 }
 

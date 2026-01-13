@@ -115,8 +115,11 @@ function saveTeachersToDB(ss, jsonResponse) {
 
   let newRows = [];
   let updateCount = 0;
-  let changeLogs = []; // [NEW] เก็บ Log รายละเอียด
+  let changeLogs = []; 
   
+  // [BATCH OPT]
+  let supabaseUpdates = [];
+
   // 2. วนลูปข้อมูลใหม่
   if (jsonResponse.teachers && Array.isArray(jsonResponse.teachers)) {
     jsonResponse.teachers.forEach(teacher => {
@@ -185,12 +188,8 @@ function saveTeachersToDB(ss, jsonResponse) {
           if (needsUpdate) {
              updateCount++;
              
-             // Sync Update to Supabase
-             // Since we modify individual cells above, we don't have a clean 'row' object here.
-             // We can construct a partial update object, or we can just fetch the full row later?
-             // Partial object is safest.
-             
-             const updatePayload = {
+             // [BATCH OPT]
+             supabaseUpdates.push({
                braincloud_id: webId,
                first_name_en: fnameEn,
                last_name_en: teacher.lastname_en || "",
@@ -199,14 +198,13 @@ function saveTeachersToDB(ss, jsonResponse) {
                user_type: (calculatedUserType !== "") ? calculatedUserType : current.userType,
                affiliation: calculatedAffiliation,
                position: (calculatedPosition !== "") ? calculatedPosition : current.position,
-               status: calculatedStatus
-             };
-             
-             // We use 'braincloud_id' as the key to upsert/update
-             sendToSupabase('dim_user', updatePayload);
+               status: calculatedStatus === 'enabled' ? 'Active' : 'Inactive', // Map to DB status
+               is_active: calculatedStatus === 'enabled' 
+             });
           }
-
-      } else {
+      } 
+      // --- CASE: NEW TEACHER ---
+      else {
           // >>> INSERT LOGIC (เพิ่มคนใหม่) <<<
           let row = new Array(existingData[0].length).fill(""); 
 
@@ -226,17 +224,12 @@ function saveTeachersToDB(ss, jsonResponse) {
           newRows.push(row);
           changeLogs.push(`[NEW] Added teacher: ${teacherName} (${calculatedAffiliation})`);
       }
-    });
+    }); // End Loop
   }
-
-  // 3. บันทึกคนใหม่
+  
+  // 3. บันทึกคนใหม่ (Sheet)
   if (newRows.length > 0) {
-    sheet.getRange(
-      sheet.getLastRow() + 1, 
-      1, 
-      newRows.length, 
-      newRows[0].length
-    ).setValues(newRows);
+    sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, newRows[0].length).setValues(newRows);
     
     // Sync New Rows to Supabase
     const newPayload = newRows.map(r => ({
@@ -248,12 +241,25 @@ function saveTeachersToDB(ss, jsonResponse) {
        user_type: r[13],
        affiliation: r[14],
        position: r[15],
-       status: r[20]
+       status: r[20] === 'enabled' ? 'Active' : 'Inactive',
+       is_active: r[20] === 'enabled'
     }));
-    sendToSupabase('dim_user', newPayload);
+    
+    // Merge into the batch update list for efficiency
+    supabaseUpdates.push(...newPayload);
   }
   
-  // 4. [NEW] แสดงผล Log
+  // [BATCH OPT] Execute Supabase Batch Sync (Both Updates + New)
+  if (supabaseUpdates.length > 0) {
+      console.log(`☁️ Syncing ${supabaseUpdates.length} teacher records to Supabase...`);
+      const CHUNK_SIZE = 100; // Conservative for dim_user
+      for (let i = 0; i < supabaseUpdates.length; i += CHUNK_SIZE) {
+          sendToSupabase('dim_user', supabaseUpdates.slice(i, i + CHUNK_SIZE), 'braincloud_id');
+          Utilities.sleep(100);
+      }
+  }
+
+  // 4. แสดงผล Log
   if (changeLogs.length > 0) {
       console.log("--- 📝 Detailed Changes ---");
       changeLogs.forEach(log => console.log(log));

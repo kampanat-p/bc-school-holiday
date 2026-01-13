@@ -5,6 +5,8 @@
   <script type="text/javascript" src="https://unpkg.com/vis-timeline@latest/standalone/umd/vis-timeline-graph2d.min.js"></script>
   <link href="https://unpkg.com/vis-timeline@latest/styles/vis-timeline-graph2d.min.css" rel="stylesheet" type="text/css" />
   <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+  <!-- SUPABASE SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   
   <style>
     /* Global & Layout */
@@ -221,56 +223,233 @@
   </div>
 
   <script>
-    var today = new Date();
-    var year = today.getFullYear();
-    var month = String(today.getMonth() + 1).padStart(2, '0');
-    var day = String(today.getDate()).padStart(2, '0');
-    document.getElementById('datePicker').value = `${year}-${month}-${day}`;
-    
-    var timeline;
-    var currentTimer; 
-    var refreshTimer;
-    var currentLogData = null;
-    
-    var isSimMode = false;
-    var simState = { removed: [], added: [] };
-    var visItemsDataSet = null; 
-    var groupsDataSet = null; 
-    var simLog = []; 
-    var currentSimTarget = null; 
-    var simulatedItemIds = []; 
+    // --------------------------------------------------------
+    // SETUP SUPABASE
+    // --------------------------------------------------------
+    const SUPABASE_URL = "https://cgznmxcecljfybcgujjb.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ";
+    const supabase = (window.supabase) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
 
-    window.onload = function() { loadData(); };
+    var timeline;
+    var visItemsDataSet;
+    var groupsDataSet;
+    var currentLogData = null;
+    var autoRefreshInterval;
+    
+    // Simulation Vars
+    var isSimMode = false;
+    var currentSimTarget = null;
+    var simState = { removed: [], added: [] }; 
+    var simulatedItemIds = []; 
+    var simLog = [];
+    var visibleTeachersCache = new Set();
+    
+    // Cache Master Data
+    var cachedUsers = null;
+    var cachedSchools = null;
+
+    window.onload = function() {
+        var today = new Date();
+        // Force Timezone to Asia/Bangkok (+7)
+        var bkkTime = new Date(today.getTime() + (7 * 3600000)); 
+        // Adjust for local if needed, but simplest is formatting YYYY-MM-DD
+        document.getElementById('datePicker').value = today.toISOString().slice(0, 10);
+        
+        loadData();
+        
+        // Auto Update Time Ruler
+        setInterval(updateCurrentTimeRuler, 60000);
+    };
 
     function manualReload() { loadData(); }
 
     function toggleAutoRefresh() {
-        if (document.getElementById('autoRefresh').checked) {
-            refreshTimer = setInterval(function() { console.log("Auto refreshing..."); loadData(true); }, 60000);
+        var checkbox = document.getElementById('autoRefresh');
+        if (checkbox.checked) {
+            autoRefreshInterval = setInterval(loadData, 30000); // 30 sec
         } else {
-            clearInterval(refreshTimer);
+            clearInterval(autoRefreshInterval);
         }
     }
 
-    function loadData(silent = false) {
-      var date = document.getElementById('datePicker').value;
-      if (!date) return;
-      if (!silent) document.getElementById('loading-overlay').style.display = 'flex';
-      
-      if (!silent) clearSimulation();
+    // --------------------------------------------------------
+    // DATA LOADING (DIRECT SUPABASE)
+    // --------------------------------------------------------
 
-      google.script.run
-        .withSuccessHandler(function(jsonString) { drawTimeline(jsonString, date, silent); })
-        .withFailureHandler(function(err) { 
-            alert("Error: " + err); 
-            document.getElementById('loading-overlay').style.display = 'none';
-        })
-        .getTimelineData(date);
+    async function fetchMasterData() {
+        if (cachedUsers) return; // Already loaded
+
+        const { data: users, error: uErr } = await supabase.from('dim_user').select('*');
+        if (uErr) console.error("Error loading users:", uErr);
+        
+        let schools = [];
+        try {
+            const { data: sData, error: sErr } = await supabase.from('dim_school').select('*');
+            if (!sErr) schools = sData;
+        } catch(e) { console.log("Skipping school load"); }
+
+        // Process Users Map
+        cachedUsers = {};
+        if (users) {
+            users.forEach(u => {
+                let isFT = (String(u.user_type) === '210');
+                let fname = u.first_name_en || u.first_name_th || "";
+                let lname = u.last_name_en || u.last_name_th || "";
+                let initial = lname ? lname.charAt(0) + "." : "";
+                
+                cachedUsers[String(u.braincloud_id)] = {
+                    name: `${fname} ${initial}`,
+                    isFullTime: isFT
+                };
+            });
+        }
+
+        // Process Schools Map
+        cachedSchools = {};
+        if (schools) {
+            schools.forEach(s => {
+                cachedSchools[String(s.school_id)] = {
+                    code: s.school_name || s.school_code || s.id, 
+                    group: s.region_group || s.school_group || "Other"
+                };
+            });
+        }
     }
 
-    function drawTimeline(jsonString, selectedDate, silent) {
+    async function loadData() {
+        if(isSimMode) return; 
+        document.getElementById('loading-overlay').style.display = 'flex';
+        var date = document.getElementById('datePicker').value;
+
+        try {
+            if (!supabase) throw new Error("Supabase client not initialized");
+
+            // 1. Ensure Master Data
+            await fetchMasterData();
+
+            // 2. Fetch Daily Sessions
+            const { data: sessions, error: sErr } = await supabase
+                .from('fact_daily_session')
+                .select('*')
+                .eq('date', date);
+            
+            if (sErr) throw sErr;
+
+            // 3. Process Data for Timeline
+            processSupabaseData(sessions, date);
+
+        } catch (e) {
+            alert("Error loading data: " + e.message);
+            console.error(e);
+            document.getElementById('loading-overlay').style.display = 'none';
+        }
+    }
+
+    function processSupabaseData(rows, targetDate) {
+        let items = [];
+        let groups = [];
+        let visibleTeachers = new Set();
+        let logs = { cancelled: [], covered: [], stats: { total: 0, cancel: 0, cover: 0 }, generatedAt: new Date().toLocaleTimeString() };
+        
+        if (rows && rows.length > 0) {
+            rows.forEach(r => {
+                let actualId = String(r.actual_teacher_id).trim();
+                let originalId = String(r.original_teacher_id).trim();
+                
+                if (cachedUsers[actualId]) visibleTeachers.add(actualId);
+                if (cachedUsers[originalId]) visibleTeachers.add(originalId);
+
+                if (!r.start_time || !r.end_time) return;
+
+                let startTime = r.start_time.substring(0, 5);
+                let endTime = r.end_time.substring(0, 5);
+                let status = String(r.status || "");
+                let isCancelled = status.startsWith("Cancelled");
+                
+                logs.stats.total++;
+
+                let schoolId = String(r.school_id);
+                let schoolInfo = cachedSchools[schoolId] || { code: schoolId, group: 'Other' };
+                let grp = (schoolInfo.group || "").toLowerCase();
+                let colorClass = 'group-other';
+                if (grp.includes('thesaban')) colorClass = 'group-thesaban';
+                else if (grp.includes('obec 3')) colorClass = 'group-obec3';
+                else if (grp.includes('private')) colorClass = 'group-private';
+                else if (grp.includes('obec south')) colorClass = 'group-obec-south';
+
+                let innerContent = r.class_name || r.class || ""; 
+                let finalClass = colorClass;
+                let tooltip = `School: ${schoolInfo.code}\nTime: ${startTime}-${endTime}`;
+
+                let isCover = (status === "Substituted") || 
+                              (status === "Normal" && originalId && actualId && actualId !== originalId);
+
+                if (isCancelled) {
+                    finalClass = 'status-cancelled';
+                    let cancelBy = status.includes("School") ? "School" : "BC";
+                    innerContent = `❌ ${innerContent} <div style="font-size:9px; margin-top:2px;">(by ${cancelBy})</div>`;
+                    let tName = cachedUsers[originalId] ? cachedUsers[originalId].name : originalId;
+                    logs.cancelled.push({
+                        start: startTime, end: endTime, school: schoolInfo.code,
+                        class: r.class_name, teacher: tName, by: cancelBy
+                    });
+                    logs.stats.cancel++;
+                } else if (isCover) {
+                    finalClass += ' status-covered';
+                    let orgName = cachedUsers[originalId] ? cachedUsers[originalId].name : originalId;
+                    let actName = cachedUsers[actualId] ? cachedUsers[actualId].name : actualId;
+                    innerContent = `🔄 ${innerContent} <div style="font-size:9px; margin-top:2px; opacity:0.9;">(Cover: ${orgName})</div>`;
+                    tooltip += `\nCovering for: ${orgName}`;
+                    logs.covered.push({
+                        start: startTime, end: endTime, school: schoolInfo.code,
+                        class: r.class_name, actual: actName, original: orgName
+                    });
+                    logs.stats.cover++;
+                }
+
+                items.push({
+                    id: r.session_id,
+                    group: actualId,
+                    start: `${targetDate}T${startTime}:00`,
+                    end: `${targetDate}T${endTime}:00`,
+                    content: `<div class="content-wrapper">${innerContent}</div>`,
+                    title: tooltip,
+                    className: finalClass,
+                    type: 'range'
+                });
+            });
+        }
+
+        visibleTeachers.forEach(tid => {
+            let u = cachedUsers[tid] || { name: `(${tid})`, isFullTime: false };
+            let nameHtml = u.isFullTime 
+                ? `<span style="color:#0D47A1; font-weight:bold;">👔 ${u.name}</span>`
+                : `<span style="color:#E65100; font-weight:bold;">⏳ ${u.name}</span>`;
+            
+            groups.push({
+                id: tid,
+                content: nameHtml,
+                style: "font-size: 13px; padding: 5px;",
+                _isFT: u.isFullTime 
+            });
+        });
+
+        groups.sort((a, b) => {
+            if (a._isFT !== b._isFT) return a._isFT ? -1 : 1; 
+            let na = a.content.replace(/<[^>]*>/g, '').trim();
+            let nb = b.content.replace(/<[^>]*>/g, '').trim();
+            return na.localeCompare(nb);
+        });
+
+        currentLogData = logs; 
+        visibleTeachersCache = visibleTeachers; 
+
+        drawTimeline({ groups: groups, items: items, logs: logs }, targetDate);
+    }
+
+    function drawTimeline(data, selectedDate, silent) {
       document.getElementById('loading-overlay').style.display = 'none';
-      var data = JSON.parse(jsonString);
+      
       currentLogData = data.logs;
       document.getElementById('logCount').innerText = (data.logs.stats.cancel + data.logs.stats.cover);
       document.getElementById('reportDate').innerText = selectedDate;

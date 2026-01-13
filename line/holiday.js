@@ -7,7 +7,7 @@
 
 // Add these at the top level
 const SUPABASE_URL = "https://cgznmxcecljfybcgujjb.supabase.co";
-const SUPABASE_KEY = "sb_secret_OZY09KeaLJWDKxEEdbu7DQ_VN41EJ4M";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ";
 
 const CONFIG = {
   // *** ตรวจสอบ ID ไฟล์ให้ถูกต้อง ***

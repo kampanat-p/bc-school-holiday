@@ -7,7 +7,7 @@
 
 // Define your Supabase credentials here (or in a separate configuration file)
 const SUPABASE_URL = "https://cgznmxcecljfybcgujjb.supabase.co"; // REPLACE WITH YOUR URL
-const SUPABASE_KEY = "b_secret_OZY09KeaLJWDKxEEdbu7DQ_VN41EJ4M"; // REPLACE WITH YOUR KEY
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ"; // REPLACE WITH YOUR KEY
 
 function sendToSupabase(tableName, payload, onConflictColumn = null) {
   if (!SUPABASE_URL || !SUPABASE_KEY || SUPABASE_URL.includes("your-project")) {

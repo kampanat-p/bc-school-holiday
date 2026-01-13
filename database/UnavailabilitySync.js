@@ -193,11 +193,9 @@ function saveToUnavailabilityDB(ss, jsonResponse) {
                     // Update
                     let rowIdx = existingMap.get(compositeId);
                     sheet.getRange(rowIdx, 1, 1, record.length).setValues([record]);
-    // Sync New Rows to Supabase
-    sendToSupabase('fact_teacher_unavailability', supabaseInserts);
                     updateCount++;
-                    // Sync Update to Supabase
-                    sendToSupabase('fact_teacher_unavailability', [supabaseRecord]);
+                    // [BATCH OPT] Collect for Batch Sync
+                    supabaseInserts.push(supabaseRecord);
                 } else {
                     // Insert
                     newRows.push(record);
@@ -213,6 +211,16 @@ function saveToUnavailabilityDB(ss, jsonResponse) {
     sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, newRows[0].length).setValues(newRows);
   }
   
+  // 6. [BATCH OPT] Sync To Supabase
+  if (supabaseInserts.length > 0) {
+      console.log(`☁️ Syncing ${supabaseInserts.length} unavailability records to Supabase...`);
+      const CHUNK_SIZE = 500;
+      for (let i = 0; i < supabaseInserts.length; i += CHUNK_SIZE) {
+         sendToSupabase('fact_teacher_unavailability', supabaseInserts.slice(i, i + CHUNK_SIZE));
+         Utilities.sleep(100);
+      }
+  }
+
   console.log(`💾 Saved Unavailability: Inserted ${newRows.length}, Updated ${updateCount}`);
 }
 

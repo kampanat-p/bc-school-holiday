@@ -1,0 +1,40 @@
+name: Daily Braincloud Sync
+
+on:
+  schedule:
+    # Run every day at 23:00 UTC (which is 6:00 AM Bangkok Time)
+    - cron: '0 23 * * *'
+  workflow_dispatch: # Allows manual trigger button in GitHub UI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Install Dependencies
+      working-directory: ./scripts
+      run: npm ci
+
+    - name: Sync Teachers
+      working-directory: ./scripts
+      run: node sync-teachers.js
+      
+    - name: Sync Unavailability (Leave)
+      working-directory: ./scripts
+      run: node sync-unavailability.js
+      
+    - name: Sync Schedule (Classes)
+      working-directory: ./scripts
+      run: node sync-schedule.js
+      
+    - name: Generate Payment Ledger
+      working-directory: ./scripts
+      run: node sync-payments.js
