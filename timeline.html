@@ -2,9 +2,13 @@
 <html>
 <head>
   <base target="_top">
+  <meta charset="utf-8">
+  <title>BC Timeline (Supabase)</title>
   <script type="text/javascript" src="https://unpkg.com/vis-timeline@latest/standalone/umd/vis-timeline-graph2d.min.js"></script>
   <link href="https://unpkg.com/vis-timeline@latest/styles/vis-timeline-graph2d.min.css" rel="stylesheet" type="text/css" />
   <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+  <!-- SUPABASE SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   
   <style>
     /* Global & Layout */
@@ -44,6 +48,7 @@
     .spinner { border: 5px solid #f3f3f3; border-top: 5px solid #3498db; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     .loading-text { margin-top: 15px; color: #555; font-size: 16px; font-weight: bold; }
+    .error-text { margin-top: 10px; color: #d32f2f; font-size: 14px; font-weight: bold; padding: 10px; background: #ffebee; border-radius: 4px; display: none; text-align: center; max-width: 80%; }
 
     .vis-item { border-right: 2px solid white !important; border-left: 2px solid white !important; border-radius: 0px !important; opacity: 0.95; height: 40px !important; display: flex !important; align-items: center; justify-content: center; cursor: pointer; } 
     .vis-item .vis-item-content { padding: 0 5px; font-size: 11px; font-weight: 600; line-height: 1.2; text-align: center; width: 100%; }
@@ -142,7 +147,8 @@
 
   <div id="loading-overlay">
     <div class="spinner"></div>
-    <div class="loading-text">Loading Timetable...</div>
+    <div class="loading-text" id="loading-text">Loading Timetable...</div>
+    <div class="error-text" id="error-text"></div>
   </div>
 
   <div class="header-section">
@@ -181,7 +187,6 @@
   <div id="visualization"></div>
   <div id="mouse-tooltip">00:00</div>
   
-  <!-- [FIXED] Sim Controls moved to Bottom of HTML structure -->
   <div id="sim-controls">
       <div class="sim-status">
           <span class="sim-status-title">🔮 Simulation Mode Active</span>
@@ -221,56 +226,267 @@
   </div>
 
   <script>
-    var today = new Date();
-    var year = today.getFullYear();
-    var month = String(today.getMonth() + 1).padStart(2, '0');
-    var day = String(today.getDate()).padStart(2, '0');
-    document.getElementById('datePicker').value = `${year}-${month}-${day}`;
+    // --------------------------------------------------------
+    // SETUP SUPABASE
+    // --------------------------------------------------------
+    const SUPABASE_URL = "https://cgznmxcecljfybcgujjb.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ";
+    // Defer initialization to loadData or ensure loaded
     
     var timeline;
-    var currentTimer; 
-    var refreshTimer;
+    var visItemsDataSet;
+    var groupsDataSet;
     var currentLogData = null;
+    var autoRefreshInterval;
+    var currentTimer;
     
+    // Simulation Vars
     var isSimMode = false;
-    var simState = { removed: [], added: [] };
-    var visItemsDataSet = null; 
-    var groupsDataSet = null; 
-    var simLog = []; 
-    var currentSimTarget = null; 
+    var currentSimTarget = null;
+    var simState = { removed: [], added: [] }; 
     var simulatedItemIds = []; 
+    var simLog = [];
+    var visibleTeachersCache = new Set();
+    
+    // Cache Master Data
+    var cachedUsers = null;
+    var cachedSchools = null;
 
-    window.onload = function() { loadData(); };
+    window.onload = function() {
+        // [FIX] Force Date to Bangkok Time Zone for default value
+        var now = new Date();
+        // Adjust to UTC+7
+        var bkkTime = new Date(now.getTime() + (7 * 60 * 60 * 1000) + (now.getTimezoneOffset() * 60000));
+        var bkkDateStr = bkkTime.toISOString().slice(0, 10);
+        
+        document.getElementById('datePicker').value = bkkDateStr;
+        
+        loadData();
+        setInterval(updateCurrentTimeRuler, 60000);
+    };
+
+    function updateStatus(msg) {
+        var el = document.getElementById('loading-text');
+        if(el) el.innerText = msg;
+        console.log("[Status] " + msg);
+    }
+
+    function showError(msg) {
+        var el = document.getElementById('error-text');
+        if(el) {
+            el.innerText = msg;
+            el.style.display = 'block';
+        }
+        document.querySelector('.spinner').style.borderTopColor = '#d32f2f'; // Red spinner
+    }
 
     function manualReload() { loadData(); }
 
     function toggleAutoRefresh() {
-        if (document.getElementById('autoRefresh').checked) {
-            refreshTimer = setInterval(function() { console.log("Auto refreshing..."); loadData(true); }, 60000);
+        var checkbox = document.getElementById('autoRefresh');
+        if (checkbox.checked) {
+            autoRefreshInterval = setInterval(loadData, 30000); 
         } else {
-            clearInterval(refreshTimer);
+            clearInterval(autoRefreshInterval);
         }
     }
 
-    function loadData(silent = false) {
-      var date = document.getElementById('datePicker').value;
-      if (!date) return;
-      if (!silent) document.getElementById('loading-overlay').style.display = 'flex';
-      
-      if (!silent) clearSimulation();
+    async function fetchMasterData() {
+        // ... (Same as before)
+        if (cachedUsers) return; 
 
-      google.script.run
-        .withSuccessHandler(function(jsonString) { drawTimeline(jsonString, date, silent); })
-        .withFailureHandler(function(err) { 
-            alert("Error: " + err); 
-            document.getElementById('loading-overlay').style.display = 'none';
-        })
-        .getTimelineData(date);
+        updateStatus("Loading Teachers & Schools...");
+        
+        // Ensure Supabase client logic
+        const sb = getSupabase();
+
+        const { data: users, error: uErr } = await sb.from('dim_user').select('*');
+        if (uErr) {
+             console.error("Error loading users:", uErr);
+             // Don't throw, just log. We can survive without mapping.
+        }
+        
+        let schools = [];
+        try {
+            const { data: sData, error: sErr } = await sb.from('dim_school').select('*');
+            if (!sErr) schools = sData;
+        } catch(e) { console.log("Skipping school load"); }
+
+        cachedUsers = {};
+        if (users) {
+            users.forEach(u => {
+                let isFT = (String(u.user_type) === '210');
+                let fname = u.first_name_en || u.first_name_th || "";
+                let lname = u.last_name_en || u.last_name_th || "";
+                let initial = lname ? lname.charAt(0) + "." : "";
+                
+                cachedUsers[String(u.braincloud_id)] = {
+                    name: `${fname} ${initial}`,
+                    isFullTime: isFT
+                };
+            });
+        }
+
+        cachedSchools = {};
+        if (schools) {
+            schools.forEach(s => {
+                cachedSchools[String(s.school_id)] = {
+                    code: s.school_name || s.school_code || s.id, 
+                    group: s.region_group || s.school_group || "Other"
+                };
+            });
+        }
+    }
+    
+    function getSupabase() {
+        if (window.supabaseClient) return window.supabaseClient;
+        if (window.supabase) {
+             window.supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+             return window.supabaseClient;
+        }
+        throw new Error("Supabase Library not loaded. Check your connection or AdBlocker.");
     }
 
-    function drawTimeline(jsonString, selectedDate, silent) {
+    async function loadData() {
+        if(isSimMode) return; 
+        document.getElementById('loading-overlay').style.display = 'flex';
+        document.getElementById('error-text').style.display = 'none';
+        var date = document.getElementById('datePicker').value;
+
+        try {
+            updateStatus("Connecting to Database...");
+            // Initial check
+            var sb = getSupabase();
+
+            await fetchMasterData(); // Ensure users/schools loaded
+
+            updateStatus(`Fetching Schedule for ${date}...`);
+            const { data: sessions, error: sErr } = await sb
+                .from('fact_daily_session')
+                .select('*')
+                .eq('date', date);
+            
+            if (sErr) throw new Error("Supabase Query Error: " + sErr.message);
+
+            updateStatus("Processing Data...");
+            processSupabaseData(sessions, date);
+
+        } catch (e) {
+            showError("Error: " + e.message);
+            console.error(e);
+            // Keep overlay visible to show error
+        }
+    }
+
+    function processSupabaseData(rows, targetDate) {
+        let items = [];
+        let groups = [];
+        let visibleTeachers = new Set();
+        let logs = { cancelled: [], covered: [], stats: { total: 0, cancel: 0, cover: 0 }, generatedAt: new Date().toLocaleTimeString() };
+        
+        if (rows && rows.length > 0) {
+            rows.forEach(r => {
+                let actualId = String(r.actual_teacher_id).trim();
+                let originalId = String(r.original_teacher_id).trim();
+                
+                if (cachedUsers[actualId]) visibleTeachers.add(actualId);
+                if (cachedUsers[originalId]) visibleTeachers.add(originalId);
+
+                if (!r.start_time || !r.end_time) return;
+
+                let startTime = r.start_time.substring(0, 5);
+                let endTime = r.end_time.substring(0, 5);
+                let status = String(r.status || "");
+                let isCancelled = status.startsWith("Cancelled");
+                
+                logs.stats.total++;
+
+                let schoolId = String(r.school_id);
+                let schoolInfo = cachedSchools[schoolId] || { code: schoolId, group: 'Other' };
+                let grp = (schoolInfo.group || "").toLowerCase();
+                let colorClass = 'group-other';
+                if (grp.includes('thesaban')) colorClass = 'group-thesaban';
+                else if (grp.includes('obec 3')) colorClass = 'group-obec3';
+                else if (grp.includes('private')) colorClass = 'group-private';
+                else if (grp.includes('obec south')) colorClass = 'group-obec-south';
+
+                let innerContent = r.class_name || r.class || ""; 
+                let finalClass = colorClass;
+                let tooltip = `School: ${schoolInfo.code}\nTime: ${startTime}-${endTime}`;
+
+                let isCover = (status === "Substituted") || 
+                              (status === "Normal" && originalId && actualId && actualId !== originalId);
+
+                if (isCancelled) {
+                    finalClass = 'status-cancelled';
+                    let cancelBy = status.includes("School") ? "School" : "BC";
+                    innerContent = `❌ ${innerContent} <div style="font-size:9px; margin-top:2px;">(by ${cancelBy})</div>`;
+                    let tName = cachedUsers[originalId] ? cachedUsers[originalId].name : originalId;
+                    logs.cancelled.push({
+                        start: startTime, end: endTime, school: schoolInfo.code,
+                        class: r.class_name, teacher: tName, by: cancelBy
+                    });
+                    logs.stats.cancel++;
+                } else if (isCover) {
+                    finalClass += ' status-covered';
+                    let orgName = cachedUsers[originalId] ? cachedUsers[originalId].name : originalId;
+                    let actName = cachedUsers[actualId] ? cachedUsers[actualId].name : actualId;
+                    innerContent = `🔄 ${innerContent} <div style="font-size:9px; margin-top:2px; opacity:0.9;">(Cover: ${orgName})</div>`;
+                    tooltip += `\nCovering for: ${orgName}`;
+                    logs.covered.push({
+                        start: startTime, end: endTime, school: schoolInfo.code,
+                        class: r.class_name, actual: actName, original: orgName
+                    });
+                    logs.stats.cover++;
+                }
+
+                items.push({
+                    id: r.session_id,
+                    group: actualId,
+                    start: `${targetDate}T${startTime}:00`,
+                    end: `${targetDate}T${endTime}:00`,
+                    content: `<div class="content-wrapper">${innerContent}</div>`,
+                    title: tooltip,
+                    className: finalClass,
+                    type: 'range'
+                });
+            });
+        }
+
+        visibleTeachers.forEach(tid => {
+            let u = cachedUsers[tid] || { name: `(${tid})`, isFullTime: false };
+            let nameHtml = u.isFullTime 
+                ? `<span style="color:#0D47A1; font-weight:bold;">👔 ${u.name}</span>`
+                : `<span style="color:#E65100; font-weight:bold;">⏳ ${u.name}</span>`;
+            
+            groups.push({
+                id: tid,
+                content: nameHtml,
+                style: "font-size: 13px; padding: 5px;",
+                _isFT: u.isFullTime 
+            });
+        });
+
+        // Add ALL teachers to the groups even if they have no class, for Simulation purposes?
+        // Actually for visualization we usually only show active ones. 
+        // But for simulation "Available Teachers" logic, we use cachedUsers anyway.
+
+        groups.sort((a, b) => {
+            if (a._isFT !== b._isFT) return a._isFT ? -1 : 1; 
+            let na = a.content.replace(/<[^>]*>/g, '').trim();
+            let nb = b.content.replace(/<[^>]*>/g, '').trim();
+            return na.localeCompare(nb);
+        });
+
+        currentLogData = logs; 
+        visibleTeachersCache = visibleTeachers; 
+
+        drawTimeline({ groups: groups, items: items, logs: logs }, targetDate);
+    }
+
+    function drawTimeline(data, selectedDate, silent) {
       document.getElementById('loading-overlay').style.display = 'none';
-      var data = JSON.parse(jsonString);
+      
       currentLogData = data.logs;
       document.getElementById('logCount').innerText = (data.logs.stats.cancel + data.logs.stats.cover);
       document.getElementById('reportDate').innerText = selectedDate;
@@ -329,7 +545,7 @@
               if (document.getElementById('simModal').style.display === "block") return;
 
               if (!isSimMode) {
-                  var confirmMsg = "คุณกำลังจะเข้าสู่โหมดจำลอง (Simulation Mode)\n\n⚠️ การจำลองนี้มีผลในหน้าจอนี้เท่านั้น ไม่กระทบฐานข้อมูลจริง";
+                  var confirmMsg = "Do you want to enter Simulation Mode?\n\n⚠️ Changes here are temporary and will not affect the database.";
                   if (confirm(confirmMsg)) {
                       startSimulationMode();
                       openSimulation(id, selectedDate);
@@ -374,21 +590,107 @@
     function startSimulationMode() {
         isSimMode = true;
         document.getElementById('sim-controls').style.display = 'flex';
-        // [FIX] Resize to accommodate bottom bar if needed
         if (timeline) timeline.redraw();
-        if (refreshTimer) clearInterval(refreshTimer);
+        if (autoRefreshInterval) clearInterval(autoRefreshInterval);
     }
 
+    // [MODIFIED] Client-Side Simulation Logic
     function openSimulation(sessionId, date) {
         var modal = document.getElementById('simModal');
         var body = document.getElementById('simBody');
         modal.style.display = "block";
-        body.innerHTML = '<div class="loading-sim">🔍 Checking availability (Real-time)...</div>';
-        
-        google.script.run
-            .withSuccessHandler(renderSimulation)
-            .withFailureHandler(function(err) { body.innerHTML = "Error: " + err; })
-            .getSubstitutionSuggestions(sessionId, date, simState);
+        body.innerHTML = '<div class="loading-sim">🔍 Finding substitutes...</div>';
+
+        setTimeout(() => {
+            // 1. Get Target
+            var targetItem = visItemsDataSet.get(sessionId);
+            if (!targetItem) {
+                 renderSimulation(JSON.stringify({ error: "Session not found" }));
+                 return;
+            }
+
+            // Parse text content strip tags
+            var div = document.createElement('div');
+            div.innerHTML = targetItem.content;
+            var className = div.textContent; 
+
+            // Parse Timings
+            var tStartStr = targetItem.start.split('T')[1].substring(0, 5); 
+            var tEndStr = targetItem.end.split('T')[1].substring(0, 5);
+            var tStartVal = parseInt(tStartStr.replace(':',''));
+            var tEndVal = parseInt(tEndStr.replace(':',''));
+
+            var teacherId = targetItem.group;
+            
+            // 2. Logic
+            var suggestions = [];
+            var allItems = visItemsDataSet.get(); 
+
+            // If we have cachedUsers, use it
+            if(cachedUsers) {
+                Object.keys(cachedUsers).forEach(uid => {
+                    // if (uid === teacherId) return; // Optional: include self? No.
+
+                    var user = cachedUsers[uid];
+                    var isBusy = false;
+                    var workload = 0;
+
+                    // Check schedule
+                    allItems.forEach(item => {
+                        if (String(item.group) === uid) {
+                            if (item.className && item.className.includes('status-sim-cancelled')) return; 
+
+                            workload++;
+                            
+                            // Check Overlap
+                            var iStart = item.start.split('T')[1].substring(0, 5);
+                            var iEnd = item.end.split('T')[1].substring(0, 5);
+                            var iStartVal = parseInt(iStart.replace(':',''));
+                            var iEndVal = parseInt(iEnd.replace(':',''));
+
+                            // (StartA < EndB) and (EndA > StartB)
+                            if (tStartVal < iEndVal && tEndVal > iStartVal) {
+                                isBusy = true;
+                            }
+                        }
+                    });
+
+                    if (!isBusy) {
+                        suggestions.push({
+                            id: uid,
+                            name: user.name,
+                            type: user.isFullTime ? 'Full-time' : 'Part-time',
+                            workload: workload,
+                            qualification: '', 
+                            isAbsent: false 
+                        });
+                    }
+                });
+            }
+
+            // Sort
+            suggestions.sort((a, b) => {
+                 if (a.type !== b.type) return a.type === 'Full-time' ? -1 : 1;
+                 if (a.workload !== b.workload) return a.workload - b.workload;
+                 return a.name.localeCompare(b.name);
+            });
+
+            var response = {
+                target: {
+                    id: sessionId,
+                    teacherId: teacherId,
+                    class: className,
+                    start: tStartStr,
+                    end: tEndStr,
+                    school: "" // Ideally find school info from id, but not critical
+                },
+                isThesaban: false,
+                suggestions: suggestions
+            };
+            
+            renderSimulation(JSON.stringify(response));
+
+        }, 100);
     }
 
     function renderSimulation(jsonString) {
@@ -405,10 +707,9 @@
         var html = `
             <div class="sim-header">
                 <strong>Current Selection:</strong>
-                <div>${data.target.class} (${data.target.school})</div>
+                <div>${data.target.class}</div>
                 <div style="font-size:12px; color:#555;">${data.target.start} - ${data.target.end}</div>
                 <div style="font-size:12px; color:#555;">Original: ${getTeacherName(data.target.teacherId)}</div>
-                ${data.isThesaban ? `<div class="sim-note">💡 Thesaban Group: Priority given to qualified teachers.</div>` : ''}
             </div>
             
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
@@ -417,11 +718,14 @@
             </div>
         `;
 
+        // Only show top 50 to avoid lag if list is huge
+        var limit = 50;
+        
         if (data.suggestions.length === 0) {
             html += "<p style='text-align:center; color:#d32f2f;'>No teachers available.</p>";
         } else {
             html += '<div style="max-height:60vh; overflow-y:auto;">';
-            data.suggestions.forEach((t, index) => {
+            data.suggestions.slice(0, limit).forEach((t, index) => {
                 var rankColor = (index < 3 && !t.isAbsent) ? '#e8f5e9' : 'white';
                 var icon = t.type === 'Full-time' ? '👔' : '⏳';
                 var typeColor = t.type === 'Full-time' ? '#0D47A1' : '#E65100';

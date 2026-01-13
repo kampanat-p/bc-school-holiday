@@ -34,6 +34,26 @@
         <i class="fas fa-chevron-right ml-2 text-[10px]"></i>
       </div>
     </div>
+    
+    <!-- Metrics Summary -->
+    <div class="grid grid-cols-4 gap-2 mt-2 text-[10px] text-center">
+      <div class="bg-slate-700 p-1 rounded">
+         <div class="text-slate-400">Total</div>
+         <div class="font-bold text-white text-xs" id="met-total">0</div>
+      </div>
+      <div class="bg-slate-700 p-1 rounded">
+         <div class="text-green-400">Covered</div>
+         <div class="font-bold text-white text-xs" id="met-cover">0</div>
+      </div>
+      <div class="bg-slate-700 p-1 rounded">
+         <div class="text-red-400">Can(BC)</div>
+         <div class="font-bold text-white text-xs" id="met-bc">0</div>
+      </div>
+      <div class="bg-slate-700 p-1 rounded">
+         <div class="text-orange-400">Can(Sch)</div>
+         <div class="font-bold text-white text-xs" id="met-sch">0</div>
+      </div>
+    </div>
   </div>
 
   <!-- Absent Modal (Full Screen) -->
@@ -105,7 +125,11 @@
 
   <script>
     // ⚙️ ใส่ URL ของ Apps Script ล่าสุดที่ Deploy
+<<<<<<< HEAD
     const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw0Z_hAvk8N27w4SUNiRiisKplikxiVvntTDbBTmllC4uzT3rHp2QMwkMvpAVKS4yQWyA/exec";
+=======
+    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw0Z_hAvk8N27w4SUNiRiisKplikxiVvntTDbBTmllC4uzT3rHp2QMwkMvpAVKS4yQWyA/exec"; 
+>>>>>>> 5e120707616cc8603341d67a3130c2255f43564d
 
     let rawData = {};
     let currentFilterMode = 'teacher';
@@ -117,9 +141,10 @@
       showStatus("loading", "กำลังดึงข้อมูล... กรุณารอสักครู่");
 
       try {
-        const response = await fetch(`${GAS_API_URL}?action=getDashboardData`, {
+        const response = await fetch(`${GAS_API_URL}?action=getDashboardData&t=${new Date().getTime()}`, {
           method: 'GET',
           mode: 'cors',
+          credentials: 'omit', // Explicitly deny cookies to ensure anonymous access
           redirect: 'follow'
         });
         const text = await response.text(); // อ่านเป็น Text ก่อนเผื่อ Error HTML
@@ -152,6 +177,14 @@
         document.getElementById('countFT').innerText = ftCount;
         document.getElementById('countPT').innerText = ptCount;
         
+        // Update Metrics
+        if (rawData.metrics) {
+            document.getElementById('met-total').innerText = rawData.metrics.total;
+            document.getElementById('met-cover').innerText = rawData.metrics.covered;
+            document.getElementById('met-bc').innerText = rawData.metrics.cancelBC;
+            document.getElementById('met-sch').innerText = rawData.metrics.cancelSchool;
+        }
+
         renderAbsentList(absentees);
 
         setFilterMode('teacher');
@@ -275,18 +308,143 @@
         return;
       }
 
+      // Grouping Logic: School -> Date Range -> Merged Data
+      const schoolsMap = {};
+
       cancels.forEach(c => {
-        list.innerHTML += `
-          <div class="bg-white border-l-4 border-red-500 p-3 rounded shadow-sm">
-            <div class="flex justify-between">
-              <span class="font-bold text-red-600">${c.school}</span>
-              <span class="text-[10px] text-gray-400">${new Date(c.time).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})}</span>
-            </div>
-            <div class="text-sm font-bold mt-1 text-gray-800">${c.type}</div>
-            <div class="text-xs text-gray-600 bg-gray-50 p-2 rounded mt-1">${c.reason}</div>
-            <div class="text-[10px] text-gray-400 mt-1 text-right">โดย: ${c.user}</div>
-          </div>`;
+         // Create School Group
+         if (!schoolsMap[c.school]) schoolsMap[c.school] = {};
+         
+         // Create Date Group (Key: Start|End)
+         const dateKey = `${c.startDate}|${c.endDate}`;
+         if (!schoolsMap[c.school][dateKey]) {
+            schoolsMap[c.school][dateKey] = {
+               startDate: c.startDate,
+               endDate: c.endDate,
+               isWholeDay: false,
+               isPartial: false,
+               sessions: new Map(), // Key: "Time-Class-Teacher" to deduplicate
+               reporters: [] 
+            };
+         }
+
+         const group = schoolsMap[c.school][dateKey];
+
+         // Determine Type Priority (Whole Day > Specific)
+         if (!Array.isArray(c.affected) && String(c.affected).includes("All Classes")) {
+             group.isWholeDay = true;
+         } else if (c.type.toLowerCase().includes("partial")) {
+             group.isPartial = true;
+         }
+
+         // Merge Specific Sessions
+         if (Array.isArray(c.affected)) {
+             c.affected.forEach(s => {
+                 // Use a unique key to merge identical sessions
+                 const sKey = `${s.time}-${s.className}-${s.teacher}`;
+                 if (!group.sessions.has(sKey)) {
+                     group.sessions.set(sKey, s);
+                 }
+             });
+         }
+
+         // Add reporter info
+         group.reporters.push({
+             name: c.user,
+             time: new Date(c.time).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'}),
+             ticket: c.ticket,
+             reason: c.reason
+         });
       });
+
+      // Rendering Logic
+      const schoolKeys = Object.keys(schoolsMap).sort();
+      
+      schoolKeys.forEach(schoolName => {
+          // School Header
+          list.innerHTML += `<div class="mt-4 mb-2 px-2 text-sm font-bold text-gray-700 border-l-4 border-slate-600 bg-slate-100 py-1">${schoolName}</div>`;
+          
+          const dateGroups = schoolsMap[schoolName];
+          Object.values(dateGroups).forEach(g => {
+              // 1. Date Label
+              let dateText = "";
+              if (g.startDate === g.endDate) {
+                 dateText = `<span class="bg-blue-50 text-blue-600 px-1 rounded border border-blue-100">${formatDateShort(g.startDate)}</span>`;
+              } else {
+                 dateText = `<span class="bg-purple-50 text-purple-600 px-1 rounded border border-purple-100">${formatDateShort(g.startDate)} - ${formatDateShort(g.endDate)}</span>`;
+              }
+
+              // 2. Content (Affected Classes)
+              let contentHtml = "";
+              if (g.isWholeDay) {
+                  contentHtml = `<div class="mt-1 text-xs text-green-600 bg-green-50 p-2 rounded border border-green-100 flex items-center">
+                     <i class="fas fa-check-circle mr-2"></i> Cancel All Classes (Whole Day)
+                  </div>`;
+              } else {
+                  // Specific Sessions List
+                  const sessionList = Array.from(g.sessions.values());
+                  // Sort by time
+                  sessionList.sort((a,b) => (a.time || "").localeCompare(b.time || ""));
+
+                  if (sessionList.length > 0) {
+                      const rows = sessionList.map(a => `
+                        <div class="flex justify-between items-center text-[11px] py-1 border-b border-gray-100 last:border-0 border-gray-200">
+                           <div class="flex items-center">
+                              <span class="font-mono text-gray-500 mr-2 w-8">${a.time}</span> 
+                              <span class="font-bold text-gray-700">${a.className}</span>
+                           </div>
+                           <div class="text-xs text-gray-500 italic">${a.teacher}</div>
+                        </div>
+                     `).join("");
+
+                     let headerLabel = `Affected Classes (${sessionList.length}):`;
+                     if (g.isPartial) headerLabel = `<i class="fas fa-clock text-orange-500 mr-1"></i> Partial Cancellation (${sessionList.length}):`;
+
+                     contentHtml = `<div class="mt-2 bg-yellow-50 border border-yellow-200 rounded p-2">
+                       <div class="text-[10px] font-bold text-yellow-800 mb-1 border-b border-yellow-200 pb-1">${headerLabel}</div>
+                       ${rows}
+                     </div>`;
+                  } else if (g.isPartial) {
+                      // Partial but empty list?
+                      contentHtml = `<div class="mt-1 text-xs text-orange-600 bg-orange-50 p-2 rounded border border-orange-100 flex items-center">
+                         <i class="fas fa-clock mr-2"></i> Partial Cancellation (No Class Data)
+                      </div>`;
+                  } else {
+                      // Fallback
+                      contentHtml = `<div class="mt-1 text-xs text-gray-400 italic p-2">Specific Sessions (Empty Collection)</div>`;
+                  }
+              }
+
+              // 3. Reporters Footer
+              const reportersHtml = g.reporters.map(r => 
+                 `<span class="inline-block bg-gray-100 text-gray-500 rounded px-1 mb-1 mr-1" title="${r.reason}">
+                    <i class="fas fa-user text-[9px]"></i> ${r.name} <span class="text-[9px] opacity-70">(${r.time})</span>
+                 </span>`
+              ).join("");
+
+              list.innerHTML += `
+                <div class="bg-white border-l-4 border-red-500 p-3 rounded shadow-sm mb-2">
+                  <div class="mb-2">
+                      <div class="flex items-center gap-2 text-[10px] font-mono text-gray-400 mb-1">
+                         <i class="far fa-calendar-alt"></i> ${dateText}
+                      </div>
+                  </div>
+                  
+                  ${contentHtml}
+
+                  <div class="text-[10px] text-gray-400 mt-3 pt-2 border-t flex flex-wrap items-center">
+                      <span class="mr-2 mb-1">Reported by:</span> ${reportersHtml}
+                  </div>
+                </div>`;
+          });
+      });
+    }
+
+    function formatDateShort(dateStr) {
+       // yyyy-MM-dd -> d MMM
+       if(!dateStr) return "";
+       const d = new Date(dateStr);
+       return d.toLocaleDateString("th-TH", { day: 'numeric', month: 'short' });
     }
 
     function renderAbsentList(list) {
@@ -317,6 +475,7 @@
                     <div>
                       <span class="font-mono text-gray-500">${i.time}</span> 
                       <span class="font-bold text-gray-700 ml-1">${i.school}</span>
+                      <span class="text-xs bg-gray-100 text-gray-500 px-1 rounded ml-1">${i.className || ''}</span>
                     </div>
                     <div class="${statusClass} flex items-center gap-1">
                       ${icon} ${detail}
