@@ -347,6 +347,10 @@
         }
         
         console.log(`Loaded ${Object.keys(cachedUsers).length} users and ${Object.keys(cachedSchools).length} schools.`);
+        
+        // --- DEBUG LOGGING ---
+        console.log("DEBUG: Sample User Keys:", Object.keys(cachedUsers).slice(0, 5));
+        console.log("DEBUG: Sample School Keys:", Object.keys(cachedSchools).slice(0, 5));
     }
     
     function getSupabase() {
@@ -396,11 +400,15 @@
         let logs = { cancelled: [], covered: [], stats: { total: 0, cancel: 0, cover: 0 }, generatedAt: new Date().toLocaleTimeString() };
         
         if (rows && rows.length > 0) {
+            console.log("DEBUG: First Row Teachers:", rows[0].actual_teacher_id, rows[0].original_teacher_id);
+            
             rows.forEach(r => {
                 let actualId = String(r.actual_teacher_id).trim();
                 let originalId = String(r.original_teacher_id).trim();
                 
                 if (cachedUsers[actualId]) visibleTeachers.add(actualId);
+                else if (actualId && !visibleTeachers.has(actualId)) console.warn("Missing Teacher Map for ID:", actualId);
+                
                 if (cachedUsers[originalId]) visibleTeachers.add(originalId);
 
                 if (!r.start_time || !r.end_time) return;
