@@ -40,7 +40,7 @@ async function main() {
 
         // 3. Process Sync (Default: Past=0 for daily, change to Past=1 for full history)
         // You can change this to true if you want to pull EVERYTHING
-        const IS_BACKFILL = true; 
+        const IS_BACKFILL = false; 
         await processSync(userMap, IS_BACKFILL);
 
     } catch (error) {
