@@ -187,6 +187,11 @@
   <div id="visualization"></div>
   <div id="mouse-tooltip">00:00</div>
   
+  <div id="debug-section" style="padding: 20px; background: #333; color: #0f0; font-family: monospace; display: none;">
+    <h3>Debug Info</h3>
+    <textarea id="debug-output" style="width: 100%; height: 200px; background: #000; color: #0f0; border: 1px solid #444;"></textarea>
+  </div>
+
   <div id="sim-controls">
       <div class="sim-status">
           <span class="sim-status-title">🔮 Simulation Mode Active</span>
@@ -291,11 +296,21 @@
         }
     }
 
+    function debugLog(msg) {
+        console.log(msg);
+        const area = document.getElementById('debug-output');
+        if(area) {
+            area.value += msg + "\n";
+            document.getElementById('debug-section').style.display = 'block';
+        }
+    }
+
     async function fetchMasterData() {
         // ... (Same as before)
         if (cachedUsers) return; 
 
         updateStatus("Loading Teachers & Schools...");
+        debugLog("Starting Master Data Load...");
         
         // Ensure Supabase client logic
         const sb = getSupabase();
@@ -346,11 +361,9 @@
             });
         }
         
-        console.log(`Loaded ${Object.keys(cachedUsers).length} users and ${Object.keys(cachedSchools).length} schools.`);
-        
-        // --- DEBUG LOGGING ---
-        console.log("DEBUG: Sample User Keys:", Object.keys(cachedUsers).slice(0, 5));
-        console.log("DEBUG: Sample School Keys:", Object.keys(cachedSchools).slice(0, 5));
+        debugLog(`Loaded ${Object.keys(cachedUsers).length} users and ${Object.keys(cachedSchools).length} schools.`);
+        debugLog("User Keys: " + JSON.stringify(Object.keys(cachedUsers).slice(0, 5)));
+        debugLog("School Keys: " + JSON.stringify(Object.keys(cachedSchools).slice(0, 5)));
     }
     
     function getSupabase() {
@@ -400,14 +413,17 @@
         let logs = { cancelled: [], covered: [], stats: { total: 0, cancel: 0, cover: 0 }, generatedAt: new Date().toLocaleTimeString() };
         
         if (rows && rows.length > 0) {
-            console.log("DEBUG: First Row Teachers:", rows[0].actual_teacher_id, rows[0].original_teacher_id);
+            debugLog(`First Row: Actual=${rows[0].actual_teacher_id}, Original=${rows[0].original_teacher_id}`);
             
             rows.forEach(r => {
                 let actualId = String(r.actual_teacher_id).trim();
                 let originalId = String(r.original_teacher_id).trim();
                 
                 if (cachedUsers[actualId]) visibleTeachers.add(actualId);
-                else if (actualId && !visibleTeachers.has(actualId)) console.warn("Missing Teacher Map for ID:", actualId);
+                else if (actualId && !visibleTeachers.has(actualId)) {
+                     debugLog(`MISSING TEACHER: ${actualId}`);
+                     visibleTeachers.add(actualId); // Add anyway so we can see it as a group
+                }
                 
                 if (cachedUsers[originalId]) visibleTeachers.add(originalId);
 
