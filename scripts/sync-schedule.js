@@ -206,7 +206,7 @@ async function processSync(targetDate) {
         }
 
         records.push({
-            session_id: String(s.id),
+            session_id: `${s.id}_${dbDateStr}_${s.start_time}`,
             date: dbDateStr,
             start_time: s.start_time,
             end_time: s.end_time,
