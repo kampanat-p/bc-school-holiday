@@ -300,12 +300,18 @@
         // Ensure Supabase client logic
         const sb = getSupabase();
 
-        const { data: users, error: uErr } = await sb.from('dim_user').select('*');
+        // [USER MAPPING FIX]
+        // In Supabase, the fact_daily_session table uses the User PK (user_id), NOT the braincloud_id.
+        // But dim_user has PK "user_id".
+        // Let's load the mapping properly.
+        const { data: users, error: uErr } = await sb.from('dim_user').select('user_id, braincloud_id, firstname_en, lastname_en, user_type_code');
+        
         if (uErr) {
              console.error("Error loading users:", uErr);
-             // Don't throw, just log. We can survive without mapping.
         }
         
+        // [SCHOOL MAPPING FIX]
+        // Assuming fact_daily_session.school_id -> dim_school.school_id (PK)
         let schools = [];
         try {
             const { data: sData, error: sErr } = await sb.from('dim_school').select('*');
@@ -315,14 +321,17 @@
         cachedUsers = {};
         if (users) {
             users.forEach(u => {
-                let isFT = (String(u.user_type) === '210');
-                let fname = u.first_name_en || u.first_name_th || "";
-                let lname = u.last_name_en || u.last_name_th || "";
+                let isFT = (String(u.user_type_code) === '210');
+                let fname = u.firstname_en || "";
+                let lname = u.lastname_en || "";
                 let initial = lname ? lname.charAt(0) + "." : "";
                 
-                cachedUsers[String(u.braincloud_id)] = {
+                // Key = PK (user_id) because that's what's in fact_daily_session
+                // Note: user_id might be int, convert to string
+                cachedUsers[String(u.user_id)] = {
                     name: `${fname} ${initial}`,
-                    isFullTime: isFT
+                    isFullTime: isFT,
+                    bcId: u.braincloud_id
                 };
             });
         }
@@ -331,11 +340,13 @@
         if (schools) {
             schools.forEach(s => {
                 cachedSchools[String(s.school_id)] = {
-                    code: s.school_name || s.school_code || s.id, 
-                    group: s.region_group || s.school_group || "Other"
+                    code: s.school_code || s.school_name || s.school_id, 
+                    group: s.region_group_name || s.school_group || "Other"
                 };
             });
         }
+        
+        console.log(`Loaded ${Object.keys(cachedUsers).length} users and ${Object.keys(cachedSchools).length} schools.`);
     }
     
     function getSupabase() {
@@ -1031,5 +1042,6 @@
     }
   </script>
 </body>
-</html>< ! - -   F o r c e   U p d a t e   - - >  
+</html>< ! - -   F o r c e   U p d a t e   - - > 
+ 
  
