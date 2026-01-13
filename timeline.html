@@ -336,9 +336,17 @@
             });
         }
 
-        // [FALLBACK] If user_id (primary key like bcp-00476) is used directly in fact_daily_session
-        // but our cache needs to support finding teacher by that ID.
-        // The above code creates cachedUsers keyed by user_id, which is CORRECT for standard sessions.
+        cachedSchools = {};
+        if (schools) {
+            schools.forEach(s => {
+                cachedSchools[String(s.school_id)] = {
+                    code: s.school_code || s.school_name || s.school_id, 
+                    group: s.region_group_name || s.school_group || "Other"
+                };
+            });
+        }
+        
+        console.log(`Loaded ${Object.keys(cachedUsers).length} users and ${Object.keys(cachedSchools).length} schools.`);
     }
     
     function getSupabase() {
