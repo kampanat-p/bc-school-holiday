@@ -2,8 +2,8 @@ name: Daily Braincloud Sync
 
 on:
   schedule:
-    # Run every day at 23:00 UTC (which is 6:00 AM Bangkok Time)
-    - cron: '0 23 * * *'
+    # Run every 5 minutes
+    - cron: '*/5 * * * *'
   workflow_dispatch: # Allows manual trigger button in GitHub UI
 
 jobs:
