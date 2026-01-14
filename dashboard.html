@@ -217,7 +217,8 @@
 
         // Parallel Fetch
         const [usersRes, schoolsRes, sessionsRes, leavesRes, assignRes] = await Promise.all([
-             sbClient.from('dim_user').select('user_id, firstname_en, lastname_en, user_type, position, braincloud_id').eq('status', 'Active'),
+             // Fetch ALL users (removed .eq('status', 'Active')) to ensure Coordinators/Admin are found even if not "Active" teachers
+             sbClient.from('dim_user').select('user_id, firstname_en, lastname_en, user_type, position, braincloud_id'),
              sbClient.from('dim_school').select('school_id, school_code, school_name_en, school_group'),
              sbClient.from('fact_daily_session').select('*').eq('date', targetDate),
              sbClient.from('fact_teacher_unavailability').select('*').lte('start_date', targetDate).gte('end_date', targetDate),
@@ -287,7 +288,12 @@
                 
                 if (!cName && (a.user_id || a.coordinator_id)) {
                     const uId = String(a.user_id || a.coordinator_id).trim();
-                    if (userMap[uId]) cName = userMap[uId].name;
+                    if (userMap[uId]) {
+                        cName = userMap[uId].name;
+                    } else {
+                        // Fallback: If user not found (even after removing filter), show ID so we can debug
+                        cName = "ID: " + uId; 
+                    }
                 }
                 
                 if (cName) assignmentMap[sId] = cName;
