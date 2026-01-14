@@ -139,7 +139,27 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   
   <script>
+    // --- GLOBAL ERROR HANDLER ---
+    window.onerror = function(msg, url, line, col, error) {
+       const box = document.getElementById('debugLogContent');
+       if(box) {
+         box.innerText += `\n[CRITICAL ERROR] ${msg}\nLine: ${line}:${col}\n`;
+         document.getElementById('debugPanel').classList.remove('hidden');
+       }
+       return false;
+    };
+
+    function logDebug(msg) {
+        console.log(msg);
+        const box = document.getElementById('debugLogContent');
+        if(box) {
+            const time = new Date().toLocaleTimeString();
+            box.innerText += `[${time}] ${msg}\n`;
+        }
+    }
+
     // --- CONFIGURATION ---
+    logDebug("Script Initialized");
     const SUPABASE_URL = "https://cgznmxcecljfybcgujjb.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ";
     
