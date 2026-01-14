@@ -128,83 +128,228 @@
     </div>
   </div>
 
+  <!-- Supabase SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  
   <script>
-    // ⚙️ ใส่ URL ของ Apps Script ล่าสุดที่ Deploy
-<<<<<<< HEAD
-    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw0Z_hAvk8N27w4SUNiRiisKplikxiVvntTDbBTmllC4uzT3rHp2QMwkMvpAVKS4yQWyA/exec";
-=======
-    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw0Z_hAvk8N27w4SUNiRiisKplikxiVvntTDbBTmllC4uzT3rHp2QMwkMvpAVKS4yQWyA/exec"; 
->>>>>>> 5e120707616cc8603341d67a3130c2255f43564d
-
+    // --- CONFIGURATION ---
+    const SUPABASE_URL = "https://cgznmxcecljfybcgujjb.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ";
+    
+    // --- STATE ---
     let rawData = {};
     let currentFilterMode = 'teacher';
+    let supabase = null;
+
+    // --- COORD MAPPING (Hardcoded Backup) ---
+    const COORD_MAP = {
+        'Thesaban': 'K. Fern',
+        'OBEC 3': 'K. Joy',
+        'Private': 'K. Kwang',
+        'OBEC South': 'K. Mine',
+        'Other': 'Central'
+    };
 
     window.onload = async () => {
       const today = new Date();
-      document.getElementById('dateDisplay').innerText = today.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+      // Force Timezone to BKK for display
+      const options = { timeZone: "Asia/Bangkok", day: 'numeric', month: 'short' };
+      document.getElementById('dateDisplay').innerText = today.toLocaleDateString('th-TH', options);
       
-      showStatus("loading", "กำลังดึงข้อมูล... กรุณารอสักครู่");
+      showStatus("loading", "🚀 Connecting to Real-time Database...");
 
       try {
-        const response = await fetch(`${GAS_API_URL}?action=getDashboardData&t=${new Date().getTime()}`, {
-          method: 'GET',
-          mode: 'cors',
-          credentials: 'omit', // Explicitly deny cookies to ensure anonymous access
-          redirect: 'follow'
-        });
-        const text = await response.text(); // อ่านเป็น Text ก่อนเผื่อ Error HTML
-        
-        let json;
-        try {
-           json = JSON.parse(text);
-        } catch (e) {
-           // ถ้า Parse ไม่ได้ แสดงว่า Server ส่ง HTML Error มา
-           console.error("Server Response:", text);
-           throw new Error("Server Error (HTML): " + extractError(text));
+        // Initialize Supabase
+        if(window.supabase) {
+             supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        } else {
+             throw new Error("Supabase SDK failed to load.");
         }
 
-        if (json.error) {
-           throw new Error(json.message);
-        }
-
-        rawData = json;
+        // Parallel Fetch
+        const targetDate = new Date().toLocaleDateString('en-CA', { timeZone: "Asia/Bangkok" }); // YYYY-MM-DD
         
+        const [usersRes, schoolsRes, sessionsRes, leavesRes] = await Promise.all([
+             supabase.from('dim_user').select('user_id, firstname_en, lastname_en, user_type, position, braincloud_id'),
+             supabase.from('dim_school').select('school_id, school_code, school_name_en, school_group'),
+             supabase.from('fact_daily_session').select('*').eq('date', targetDate),
+             supabase.from('fact_teacher_unavailability').select('*').lte('start_date', targetDate).gte('end_date', targetDate)
+        ]);
+
+        if (usersRes.error) throw usersRes.error;
+        if (schoolsRes.error) throw schoolsRes.error;
+        if (sessionsRes.error) throw sessionsRes.error;
+        // leavesRes might be empty, that's fine
+
+        // TRANSFORM DATA
+        rawData = transformToDashboardFormat(
+            sessionsRes.data, 
+            usersRes.data, 
+            schoolsRes.data, 
+            leavesRes.data || []
+        );
+
         // Success
         document.getElementById('statusBox').classList.add('hidden');
         document.getElementById('mainContent').classList.remove('hidden');
         
-        // Update Absent Count & List
-        const absentees = rawData.absentees || [];
-        const ftCount = absentees.filter(a => a.type === 'Full-time').length;
-        const ptCount = absentees.filter(a => a.type !== 'Full-time').length;
-
-        document.getElementById('absentTotal').innerText = absentees.length;
-        document.getElementById('countFT').innerText = ftCount;
-        document.getElementById('countPT').innerText = ptCount;
+        // Update UI
+        updateMetrics(rawData);
+        renderAbsentList(rawData.absentees);
         
-        // Update Metrics
-        if (rawData.metrics) {
-            document.getElementById('met-total').innerText = rawData.metrics.total;
-            document.getElementById('met-cover').innerText = rawData.metrics.covered;
-            document.getElementById('met-bc').innerText = rawData.metrics.cancelBC;
-            document.getElementById('met-sch').innerText = rawData.metrics.cancelSchool;
-        }
-
-        renderAbsentList(absentees);
-
         setFilterMode('teacher');
         renderCancellations();
 
+        console.log("Loaded Data Config:", rawData);
+
       } catch (err) {
-        showStatus("error", "❌ โหลดไม่ได้: " + err.message);
+        showStatus("error", "❌ Connection Failed: " + err.message);
+        console.error(err);
       }
     };
 
-    function extractError(html) {
-       // พยายามแกะข้อความ Error จาก HTML ของ Google
-       if (html.includes("Google Docs")) return "สิทธิ์เข้าถึงไฟล์ถูกปฏิเสธ (Check File ID/Permissions)";
-       if (html.includes("script")) return "สคริปต์ทำงานผิดพลาด (Check Script Logs)";
-       return html.substring(0, 100) + "..."; // ตัดมาสั้นๆ
+    // --- ADAPTER: Supabase -> Dashboard Format ---
+    function transformToDashboardFormat(sessions, users, schools, leaves) {
+        // 1. Create Maps
+        const userMap = {};
+        users.forEach(u => {
+            // Logic: user_type or position 210 = Full Time. 
+            // Note: Data might be int or string.
+            const isFT = (String(u.user_type) === '210' || String(u.position) === '210');
+            userMap[u.user_id] = {
+                name: (u.firstname_en || "Unknown") + " " + (u.lastname_en ? u.lastname_en.charAt(0)+"." : ""),
+                type: isFT ? 'Full-time' : 'Part-time' 
+            };
+        });
+
+        const schoolMap = {};
+        schools.forEach(s => {
+            let grp = s.school_group || "Other";
+            // Normalise group name for coord mapping
+            let coordKey = Object.keys(COORD_MAP).find(k => grp.includes(k)) || 'Other';
+            
+            schoolMap[s.school_id] = {
+                name: s.school_code || s.school_name_en, // Prefer Code for short display
+                group: grp,
+                coordinator: COORD_MAP[coordKey]
+            };
+        });
+
+        // 2. Process Sessions
+        const dashSessions = [];
+        const cancellations = [];
+        const filters = { teachers: new Set(), schools: new Set(), coordinators: new Set() };
+        const metrics = { total: 0, covered: 0, cancelBC: 0, cancelSchool: 0 };
+
+        sessions.forEach(s => {
+            const sc = schoolMap[s.school_id] || { name: 'Unknown', coordinator: 'Admin' };
+            const actT = userMap[s.actual_teacher_id] || { name: s.actual_teacher_id, type: 'Part-time' };
+            const orgT = userMap[s.original_teacher_id] || { name: s.original_teacher_id, type: 'Part-time' };
+            
+            const startStr = (s.start_time || "").substring(0, 5);
+            const endStr = (s.end_time || "").substring(0, 5);
+            
+            let status = "Normal";
+            if (String(s.status).startsWith("Cancelled")) {
+                status = String(s.status); // "Cancelled (BC)" etc
+            } else if (s.status === "Substituted" || s.actual_teacher_id !== s.original_teacher_id) {
+                status = "Cover";
+            }
+
+            // Update Metrics
+            metrics.total++;
+            if (status === 'Cover') metrics.covered++;
+            if (status.includes('Cancelled (BC)')) metrics.cancelBC++;
+            if (status.includes('Cancelled (School)')) metrics.cancelSchool++;
+
+            // For List
+            const item = {
+                school: sc.name,
+                class: s.class_name || "Class",
+                time: `${startStr}-${endStr}`,
+                teacher: actT.name,
+                teacherType: actT.type,
+                coordinator: sc.coordinator,
+                status: status,
+                originalTeacher: orgT.name // Hidden field for finding covers. Or we can just use original logic if covers are explicit.
+            };
+            dashSessions.push(item);
+            
+            // Filters
+            filters.teachers.add(actT.name);
+            filters.schools.add(sc.name);
+            filters.coordinators.add(sc.coordinator);
+
+            // Cencellations List
+            if (status.includes("Cancelled")) {
+                cancellations.push({
+                    school: sc.name,
+                    date: s.date,
+                    time: `${startStr}-${endStr}`,
+                    class: s.class_name,
+                    by: status.includes("School") ? "School" : "Braincloud"
+                });
+            }
+        });
+
+        // 3. Process Absentees & Impact
+        const absentees = leaves.map(l => {
+            const u = userMap[l.teacher_id] || { name: l.teacher_id, type: "?" };
+            
+            // Find Impact
+            // "Impacts" are sessions where the ABSENT teacher (l.teacher_id) was the ORIGINAL teacher
+            const impactList = [];
+            sessions.forEach(s => {
+                if (s.original_teacher_id === l.teacher_id) {
+                     const sc = schoolMap[s.school_id] || { name: 'Unknown' };
+                     const actT = userMap[s.actual_teacher_id] || { name: 'Unknown' };
+                     
+                     let st = "Normal";
+                     if (String(s.status).startsWith("Cancelled")) st = String(s.status);
+                     else if (s.actual_teacher_id !== s.original_teacher_id) st = "Cover";
+
+                     impactList.push({
+                         time: (s.start_time||"").substring(0,5),
+                         school: sc.name,
+                         className: s.class_name,
+                         status: st,
+                         actualTeacher: actT.name
+                     });
+                }
+            });
+
+            return {
+                name: u.name,
+                type: u.type,
+                period: l.leave_type || "Leave",
+                reason: l.reason || "N/A",
+                impacts: impactList
+            };
+        });
+
+        // 4. Sort & Return
+        return {
+            sessions: dashSessions.sort((a,b) => a.time.localeCompare(b.time)),
+            cancellations: cancellations,
+            absentees: absentees,
+            metrics: metrics,
+            filters: {
+                teachers: Array.from(filters.teachers).sort(),
+                schools: Array.from(filters.schools).sort(),
+                coordinators: Array.from(filters.coordinators).sort()
+            }
+        };
+    }
+
+    function updateMetrics(data) {
+        document.getElementById('absentTotal').innerText = data.absentees.length;
+        document.getElementById('countFT').innerText = data.absentees.filter(a => a.type === 'Full-time').length;
+        document.getElementById('countPT').innerText = data.absentees.filter(a => a.type !== 'Full-time').length;
+        
+        document.getElementById('met-total').innerText = data.metrics.total;
+        document.getElementById('met-cover').innerText = data.metrics.covered;
+        document.getElementById('met-bc').innerText = data.metrics.cancelBC;
+        document.getElementById('met-sch').innerText = data.metrics.cancelSchool;
     }
 
     function showStatus(type, msg) {
@@ -214,7 +359,7 @@
        box.innerHTML = msg;
     }
 
-    // --- Filter & Render Logic (เหมือนเดิม) ---
+    // --- Filter & Render Logic (Existing UI Cleaned) ---
     function switchTab(tab) {
       document.getElementById('view-schedule').classList.add('hidden');
       document.getElementById('view-cancel').classList.add('hidden');
