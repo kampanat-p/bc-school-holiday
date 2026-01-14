@@ -145,6 +145,26 @@
 </head>
 <body>
 
+  <div id="debug-section" style="padding: 10px; background: #000; color: #0f0; font-family: monospace; position: fixed; top: 0; left: 0; width: 100%; height: 150px; z-index: 99999; overflow-y: scroll; border-bottom: 2px solid #fff; opacity: 0.9;">
+    <h3 style="margin: 0 0 5px 0;">Debug Console (v8 - Top) <button onclick="this.parentElement.style.display='none'" style="float:right; font-size:10px;">Hide</button></h3>
+    <textarea id="debug-output" style="width: 100%; height: 100px; background: #111; color: #0f0; border: 1px solid #444;">Initializing...</textarea>
+  </div>
+  <script>
+    // Global Error Handler
+    window.onerror = function(msg, url, line, col, error) {
+        var d = document.getElementById('debug-output');
+        if(d) d.value += "\n\n🔥 ERROR: " + msg + "\nLine: " + line;
+        return false;
+    };
+    function debugLog(msg) {
+        var d = document.getElementById('debug-output');
+        if(d) d.value += "\n" + msg;
+        console.log(msg);
+    }
+    // Test Log
+    debugLog("Script loaded. checking supabase...");
+  </script>
+
   <div id="loading-overlay">
     <div class="spinner"></div>
     <div class="loading-text" id="loading-text">Loading Timetable...</div>
@@ -186,11 +206,6 @@
 
   <div id="visualization"></div>
   <div id="mouse-tooltip">00:00</div>
-  
-  <div id="debug-section" style="padding: 10px; background: #000; color: #0f0; font-family: monospace; position: fixed; bottom: 0; left: 0; width: 100%; height: 250px; z-index: 99999; overflow-y: scroll; border-top: 2px solid #fff;">
-    <h3 style="margin: 0 0 5px 0;">Debug Console (v7)</h3>
-    <textarea id="debug-output" style="width: 100%; height: 200px; background: #111; color: #0f0; border: 1px solid #444;">Waiting for logs...</textarea>
-  </div>
 
   <div id="sim-controls">
       <div class="sim-status">
