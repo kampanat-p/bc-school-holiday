@@ -328,7 +328,7 @@
         // In Supabase, the fact_daily_session table uses the User PK (user_id), NOT the braincloud_id.
         // But dim_user has PK "user_id".
         // Let's load the mapping properly.
-        const { data: users, error: uErr } = await sb.from('dim_user').select('user_id, braincloud_id, firstname_en, lastname_en, user_type, position');
+        const { data: users, error: uErr } = await sb.from('dim_user').select('user_id, braincloud_id, firstname_en, lastname_en, user_type, position, affiliation');
         
         if (uErr) {
              console.error("Error loading users:", uErr);
@@ -353,10 +353,11 @@
                 
                 // Key = PK (user_id) because that's what's in fact_daily_session
                 // Note: user_id might be int, convert to string
-                cachedUsers[String(u.user_id)] = {
+                cachedUsers[String(u.user_id).trim()] = {
                     name: `${fname} ${initial}`,
                     isFullTime: isFT,
-                    bcId: u.braincloud_id
+                    bcId: u.braincloud_id,
+                    affiliation: u.affiliation || 'External'
                 };
             });
         }
@@ -674,15 +675,18 @@
             // If we have cachedUsers, use it
             if(cachedUsers) {
                 Object.keys(cachedUsers).forEach(uid => {
-                    // if (uid === teacherId) return; // Optional: include self? No.
-
                     var user = cachedUsers[uid];
+                    
+                    // [FILTER] Only suggest "BC" affiliation (Start)
+                    if (user.affiliation !== 'BC') return;
+
                     var isBusy = false;
                     var workload = 0;
 
                     // Check schedule
                     allItems.forEach(item => {
-                        if (String(item.group) === uid) {
+                        // Compare group (Teacher ID) safely
+                        if (String(item.group).trim() === uid) {
                             if (item.className && item.className.includes('status-sim-cancelled')) return; 
 
                             workload++;
