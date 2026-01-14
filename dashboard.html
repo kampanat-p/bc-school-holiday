@@ -43,20 +43,20 @@
     
     <!-- Metrics Summary -->
     <div class="grid grid-cols-4 gap-2 mt-2 text-[10px] text-center">
-      <div class="bg-slate-700 p-1 rounded">
+      <div onclick="filterSessionBy('Total')" class="bg-slate-700 p-1 rounded cursor-pointer hover:bg-slate-600 border border-transparent hover:border-slate-500">
          <div class="text-slate-400">Total</div>
          <div class="font-bold text-white text-xs" id="met-total">0</div>
       </div>
-      <div class="bg-slate-700 p-1 rounded">
+      <div onclick="filterSessionBy('Cover')" class="bg-slate-700 p-1 rounded cursor-pointer hover:bg-slate-600 border border-transparent hover:border-green-500">
          <div class="text-green-400">Covered</div>
          <div class="font-bold text-white text-xs" id="met-cover">0</div>
       </div>
-      <div class="bg-slate-700 p-1 rounded">
-         <div class="text-red-400">Can(BC)</div>
+      <div onclick="filterSessionBy('Cancelled (BC)')" class="bg-slate-700 p-1 rounded cursor-pointer hover:bg-slate-600 border border-transparent hover:border-red-500">
+         <div class="text-red-400">Cancelled (BC)</div>
          <div class="font-bold text-white text-xs" id="met-bc">0</div>
       </div>
-      <div class="bg-slate-700 p-1 rounded">
-         <div class="text-orange-400">Can(Sch)</div>
+      <div onclick="filterSessionBy('Cancelled (School)')" class="bg-slate-700 p-1 rounded cursor-pointer hover:bg-slate-600 border border-transparent hover:border-orange-500">
+         <div class="text-orange-400">Cancelled (School)</div>
          <div class="font-bold text-white text-xs" id="met-sch">0</div>
       </div>
     </div>
@@ -179,8 +179,8 @@
     let currentFilterMode = 'teacher';
     let sbClient = null;
 
-    // --- COORD MAPPING (Hardcoded Backup) ---
-    const COORD_MAP = {
+    // --- COORD MAPPING (Fallback) ---
+    const FALLBACK_COORD_MAP = {
         'Thesaban': 'K. Fern',
         'OBEC 3': 'K. Joy',
         'Private': 'K. Kwang',
@@ -222,30 +222,27 @@
         }
 
         // Parallel Fetch
-        const [usersRes, schoolsRes, sessionsRes, leavesRes] = await Promise.all([
-             sbClient.from('dim_user').select('user_id, firstname_en, lastname_en, user_type, position, braincloud_id'),
+        const [usersRes, schoolsRes, sessionsRes, leavesRes, assignRes] = await Promise.all([
+             sbClient.from('dim_user').select('user_id, firstname_en, lastname_en, user_type, position, braincloud_id').eq('status', 'Active'),
              sbClient.from('dim_school').select('school_id, school_code, school_name_en, school_group'),
              sbClient.from('fact_daily_session').select('*').eq('date', targetDate),
-             sbClient.from('fact_teacher_unavailability').select('*').lte('start_date', targetDate).gte('end_date', targetDate)
+             sbClient.from('fact_teacher_unavailability').select('*').lte('start_date', targetDate).gte('end_date', targetDate),
+             sbClient.from('ref_assignment').select('*')
         ]);
 
         if (usersRes.error) throw usersRes.error;
         if (schoolsRes.error) throw schoolsRes.error;
         if (sessionsRes.error) throw sessionsRes.error;
         
-        logDebug(`Fetched: ${sessionsRes.data.length} sessions, ${usersRes.data.length} users, ${schoolsRes.data.length} schools`);
-        if (sessionsRes.data.length > 0) {
-            logDebug(`Sample Session: ${JSON.stringify(sessionsRes.data[0])}`);
-        } else {
-            logDebug("WARNING: No sessions returned for this date.");
-        }
+        logDebug(`Fetched: ${sessionsRes.data.length} sessions, ${usersRes.data.length} users, ${schoolsRes.data.length} schools, ${assignRes.data ? assignRes.data.length : 0} assignments`);
 
         // TRANSFORM DATA
         rawData = transformToDashboardFormat(
             sessionsRes.data, 
             usersRes.data, 
             schoolsRes.data, 
-            leavesRes.data || []
+            leavesRes.data || [],
+            assignRes.data || []
         );
 
         // Success
@@ -271,7 +268,7 @@
     }
 
     // --- ADAPTER: Supabase -> Dashboard Format ---
-    function transformToDashboardFormat(sessions, users, schools, leaves) {
+    function transformToDashboardFormat(sessions, users, schools, leaves, assignments) { // Fixed: Accept assignments
         // 1. Create Maps
         const userMap = {};
         users.forEach(u => {
@@ -283,17 +280,36 @@
                 type: isFT ? 'Full-time' : 'Part-time' 
             };
         });
+        
+        // 1.1 Assignments Map
+        const assignmentMap = {}; 
+        if (assignments) {
+            assignments.forEach(a => {
+                const sId = String(a.school_id).trim();
+                const uId = String(a.user_id || a.coordinator_id || "").trim();
+                let cName = a.coordinator_name || "Central";
+                if (userMap[uId]) cName = userMap[uId].name;
+                assignmentMap[sId] = cName;
+            });
+        }
 
         const schoolMap = {};
         schools.forEach(s => {
             let grp = s.school_group || "Other";
-            let coordKey = Object.keys(COORD_MAP).find(k => grp.includes(k)) || 'Other';
+            const sId = String(s.school_id).trim();
+            
+            // Priority: Explicit -> Fallback
+            let coordName = assignmentMap[sId];
+            if (!coordName) {
+                 let coordKey = Object.keys(FALLBACK_COORD_MAP).find(k => grp.includes(k)) || 'Other';
+                 coordName = FALLBACK_COORD_MAP[coordKey];
+            }
             
             // Strict key mapping
-            schoolMap[String(s.school_id).trim()] = {
+            schoolMap[sId] = {
                 name: s.school_code || s.school_name_en, 
                 group: grp,
-                coordinator: COORD_MAP[coordKey]
+                coordinator: coordName
             };
         });
 
@@ -432,6 +448,16 @@
        box.innerHTML = msg;
     }
 
+    // --- Metric Filtering ---
+    function filterSessionBy(mode) {
+        // Switch to Schedule Tab
+        switchTab('schedule');
+        
+        // Visual feedback on active filter
+        window.currentStatusFilter = mode;
+        applyFilter();
+    }
+
     // --- Filter & Render Logic (Existing UI Cleaned) ---
     function switchTab(tab) {
       document.getElementById('view-schedule').classList.add('hidden');
@@ -441,9 +467,16 @@
 
       document.getElementById('view-' + tab).classList.remove('hidden');
       document.getElementById('tab-' + tab).className = "flex-1 py-3 text-sm text-center tab-active border-b-2 border-green-600 text-green-700 font-bold";
+      
+      // Reset special filter when switching text
+      if (tab === 'schedule') {
+          // If manually switched, reset unless a mode is set
+          // We keep current mode
+      }
     }
 
     function setFilterMode(mode) {
+      window.currentStatusFilter = 'Total'; // Reset Status Filter
       currentFilterMode = mode;
       ['teacher', 'school', 'coord'].forEach(m => {
         document.getElementById('btn-f-' + m).className = (m === mode) 
@@ -472,8 +505,16 @@
       const val = document.getElementById('filterSelect').value;
       const list = document.getElementById('scheduleList');
       list.innerHTML = "";
+      
+      const statusMode = window.currentStatusFilter || 'Total';
 
       const filtered = rawData.sessions.filter(s => {
+        // 1. Check Status Filter
+        if (statusMode === 'Cover' && s.status !== 'Cover') return false;
+        if (statusMode === 'Cancelled (BC)' && !s.status.includes('Cancelled (BC)')) return false;
+        if (statusMode === 'Cancelled (School)' && !s.status.includes('Cancelled (School)')) return false;
+
+        // 2. Check Dropdown Filter
         if (val === 'all') return true;
         if (currentFilterMode === 'teacher') return s.teacher === val;
         if (currentFilterMode === 'school') return s.school === val;
