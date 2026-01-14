@@ -35,9 +35,12 @@ async function main() {
         await loginToBraincloud();
         console.log("✅ Login Successful!");
 
-        // 2. Determine Date Range (Default: Today)
-        // You can change these to backfill: e.g. processDate('2025-06-01')
-        const today = new Date();
+        // 2. Determine Date Range (Default: Today in Bangkok)
+        // [FIX] Force Asia/Bangkok Timezone
+        const bkkTime = new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" });
+        const today = new Date(bkkTime);
+        console.log(`🕒 Server (UTC): ${new Date().toISOString()} | 🌏 BKK Date: ${today.toDateString()}`);
+
         await processSync(today);
 
         // Example: If you want to sync tomorrow as well
