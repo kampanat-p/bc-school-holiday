@@ -353,11 +353,11 @@
                 
                 // Key = PK (user_id) because that's what's in fact_daily_session
                 // Note: user_id might be int, convert to string
-                cachedUsers[String(u.user_id).trim()] = {
+                cachedUsers[String(u.user_id)] = {
                     name: `${fname} ${initial}`,
                     isFullTime: isFT,
                     bcId: u.braincloud_id,
-                    affiliation: u.affiliation || 'External'
+                    affiliation: u.affiliation
                 };
             });
         }
@@ -677,7 +677,7 @@
                 Object.keys(cachedUsers).forEach(uid => {
                     var user = cachedUsers[uid];
                     
-                    // [FILTER] Only suggest "BC" affiliation (Start)
+                    // Filter: Only BC affiliation
                     if (user.affiliation !== 'BC') return;
 
                     var isBusy = false;
@@ -685,8 +685,7 @@
 
                     // Check schedule
                     allItems.forEach(item => {
-                        // Compare group (Teacher ID) safely
-                        if (String(item.group).trim() === uid) {
+                        if (String(item.group) === uid) {
                             if (item.className && item.className.includes('status-sim-cancelled')) return; 
 
                             workload++;
