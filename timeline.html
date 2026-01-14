@@ -202,7 +202,7 @@
   <div id="mouse-tooltip">00:00</div>
 
   <div id="sim-controls">
-    <div id="version-display" style="position:fixed; bottom:5px; right:5px; opacity:0.5; font-size:10px; z-index:9999; color:#888;">v10.3 (Zero Workload Warning)</div>
+    <div id="version-display" style="position:fixed; bottom:5px; right:5px; opacity:0.5; font-size:10px; z-index:9999; color:#888;">v10.4 (Thesaban + Position Rules)</div>
       <div class="sim-status">
           <span class="sim-status-title">🔮 Simulation Mode Active</span>
           <span class="sim-status-desc">Changes are temporary. Click items to simulate moves.</span>
@@ -329,7 +329,7 @@
         // In Supabase, the fact_daily_session table uses the User PK (user_id), NOT the braincloud_id.
         // But dim_user has PK "user_id".
         // Let's load the mapping properly.
-        const { data: users, error: uErr } = await sb.from('dim_user').select('user_id, braincloud_id, firstname_en, lastname_en, user_type, position, affiliation, status');
+        const { data: users, error: uErr } = await sb.from('dim_user').select('user_id, braincloud_id, firstname_en, lastname_en, user_type, position, affiliation, status, qualification');
         
         if (uErr) {
              console.error("Error loading users:", uErr);
@@ -359,7 +359,9 @@
                     isFullTime: isFT,
                     bcId: u.braincloud_id,
                     affiliation: u.affiliation,
-                    status: u.status
+                    status: u.status,
+                    position: u.position,
+                    qualification: u.qualification || ""
                 };
             });
         }
@@ -496,7 +498,8 @@
                     content: `<div class="content-wrapper">${innerContent}</div>`,
                     title: tooltip,
                     className: finalClass,
-                    type: 'range'
+                    type: 'range',
+                    schoolId: schoolId // store for simulation logic
                 });
             });
         }
@@ -670,6 +673,13 @@
 
             var teacherId = targetItem.group;
             
+            // Logic extensions
+            var originalTeacher = cachedUsers[teacherId] || {};
+            var originalPosition = String(originalTeacher.position || "");
+            var schoolInfo = cachedSchools[targetItem.schoolId] || {};
+            var isThesaban = (schoolInfo.group || "").toLowerCase().includes("thesaban");
+
+            
             // 2. Logic
             var suggestions = [];
             var allItems = visItemsDataSet.get(); 
@@ -688,6 +698,12 @@
                          var numPart = parseInt(uid.split('-')[1], 10);
                          if (numPart >= 464 && numPart <= 474) return;
                     }
+                    
+                    // Filter: Position Type Matching (110 vs 100)
+                    // If original is 110 (Thai), cover must be 110.
+                    // If original is 100 (NES), cover must be 100.
+                    if (originalPosition === '110' && user.position !== '110') return;
+                    if (originalPosition === '100' && user.position !== '100') return;
 
                     var isBusy = false;
                     var workload = 0;
@@ -719,7 +735,7 @@
                             name: user.name,
                             type: user.isFullTime ? 'Full-time' : 'Part-time',
                             workload: workload,
-                            qualification: '', 
+                            qualification: user.qualification || '', 
                             isAbsent: (workload === 0) 
                         });
                     }
@@ -728,11 +744,19 @@
 
             // Sort logic: 
             // 1. Zero Workload (Absent/Leave) -> Move to Bottom
-            // 2. Teacher Type (Full-time First)
-            // 3. Workload (Low First)
-            // 4. Name (Alphabetical)
+            // 2. Thesaban: Qualification First
+            // 3. Teacher Type (Full-time First)
+            // 4. Workload (Low First)
+            // 5. Name (Alphabetical)
             suggestions.sort((a, b) => {
-                 if (a.isAbsent !== b.isAbsent) return a.isAbsent ? 1 : -1; // Absent/Zero-workload moved to bottom
+                 if (a.isAbsent !== b.isAbsent) return a.isAbsent ? 1 : -1; 
+                 
+                 // Thesaban Rule
+                 if (isThesaban) {
+                     if (a.qualification && !b.qualification) return -1;
+                     if (!a.qualification && b.qualification) return 1;
+                 }
+                 
                  if (a.type !== b.type) return a.type === 'Full-time' ? -1 : 1;
                  if (a.workload !== b.workload) return a.workload - b.workload;
                  return a.name.localeCompare(b.name);
