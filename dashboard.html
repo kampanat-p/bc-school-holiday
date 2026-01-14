@@ -138,16 +138,16 @@
   <!-- Supabase SDK -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   
+  <!-- Main Logic -->
   <script>
     // --- GLOBAL ERROR HANDLER ---
-    window.onerror = function(msg, url, line, col, error) {
+    window.addEventListener('error', function(event) {
        const box = document.getElementById('debugLogContent');
        if(box) {
-         box.innerText += `\n[CRITICAL ERROR] ${msg}\nLine: ${line}:${col}\n`;
+         box.innerText += `\n[CRITICAL ERROR] ${event.message}\nAt: ${event.filename}:${event.lineno}:${event.colno}\n`;
          document.getElementById('debugPanel').classList.remove('hidden');
        }
-       return false;
-    };
+    });
 
     function logDebug(msg) {
         console.log(msg);
@@ -159,7 +159,28 @@
     }
 
     // --- CONFIGURATION ---
-    logDebug("Script Initialized");
+    // Make sure we wait for DOM before initial log if script is in head (it is not, but safe practice)
+    if(document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => logDebug("Script Initialized (DOM Ready)"));
+    } else {
+        logDebug("Script Initialized (Immediate)");
+    }
+    
+    // Check Supabase
+    if (typeof supabase === 'undefined') {
+        // Wait a bit, maybe network is slow
+        setTimeout(() => {
+            if (typeof supabase === 'undefined') {
+                 logDebug("[ERROR] Supabase SDK failed to load from CDN.");
+                 alert("Supabase SDK failed to load. Check your internet connection.");
+            } else {
+                logDebug("Supabase SDK loaded late.");
+            }
+        }, 2000);
+    } else {
+        logDebug("Supabase SDK present.");
+    }
+    
     const SUPABASE_URL = "https://cgznmxcecljfybcgujjb.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ";
     
