@@ -130,8 +130,9 @@ async function processTeacherSync() {
 
         // Determine User ID
         if (userMap.has(webId)) {
-            // Update existing
-            userId = userMap.get(webId);
+            // [MODIFIED] SKIP EXISTING TEACHERS
+            // Do not update existing records to preserve manual edits in Supabase.
+            return;
         } else {
             // Insert New -> Generate ID
             maxIdCounter++;
