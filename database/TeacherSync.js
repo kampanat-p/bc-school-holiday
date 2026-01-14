@@ -153,6 +153,11 @@ function saveTeachersToDB(ss, jsonResponse) {
 
       // --- ตรวจสอบว่ามีอยู่แล้วหรือเป็นคนใหม่ ---
       if (existingMap.has(webId)) {
+          // [DISABLED BY USER REQUEST] 
+          // Stop updating existing teachers to prevent overwriting manual data.
+          // Only new teachers will be added.
+          
+          /* 
           // >>> UPDATE LOGIC (ซ่อมแซมและอัปเดตข้อมูลเก่า) <<<
           let current = existingMap.get(webId);
           let needsUpdate = false;
@@ -202,6 +207,7 @@ function saveTeachersToDB(ss, jsonResponse) {
                is_active: calculatedStatus === 'enabled' 
              });
           }
+          */
       } 
       // --- CASE: NEW TEACHER ---
       else {
