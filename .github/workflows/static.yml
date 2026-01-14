@@ -26,11 +26,16 @@ jobs:
         
       - name: Setup Pages
         uses: actions/configure-pages@v4
+      
+      - name: Prepare Site Artifact
+        run: |
+          mkdir _site
+          rsync -av --progress . _site/ --exclude .git --exclude .github --exclude line --exclude database --exclude _site
         
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'
+          path: '_site'
           
       - name: Deploy to GitHub Pages
         id: deployment
