@@ -19,7 +19,7 @@
   <!-- Header -->
   <div class="bg-slate-800 text-white p-5 sticky top-0 z-50 shadow-md">
     <div class="flex justify-between items-center">
-      <h1 class="text-lg font-bold">BC Dashboard <span class="text-[9px] font-normal text-slate-400 ml-1">v3.3 (List Fix)</span></h1>
+      <h1 class="text-lg font-bold">BC Dashboard <span class="text-[9px] font-normal text-slate-400 ml-1">v3.4 (Metrics/Dedupe)</span></h1>
       <div class="flex items-center gap-2">
          <button onclick="document.getElementById('debugPanel').classList.toggle('hidden')" class="text-xs bg-slate-600 px-2 py-1 rounded text-slate-300">🐞</button>
          <a href="timeline.html" target="_blank" class="text-xs bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded transition no-underline flex items-center gap-1">
@@ -281,15 +281,21 @@
             };
         });
         
-        // 1.1 Assignments Map
+        // 1.1 Assignments Map (Source of Truth for Coordinators)
         const assignmentMap = {}; 
         if (assignments) {
             assignments.forEach(a => {
                 const sId = String(a.school_id).trim();
-                const uId = String(a.user_id || a.coordinator_id || "").trim();
-                let cName = a.coordinator_name || "Central";
-                if (userMap[uId]) cName = userMap[uId].name;
-                assignmentMap[sId] = cName;
+                // Priority: Explicit Name in DB -> User Table Lookup -> Raw ID
+                // User Request: Map all names, do not default to Central
+                let cName = a.coordinator_name;
+                
+                if (!cName && (a.user_id || a.coordinator_id)) {
+                    const uId = String(a.user_id || a.coordinator_id).trim();
+                    if (userMap[uId]) cName = userMap[uId].name;
+                }
+                
+                if (cName) assignmentMap[sId] = cName;
             });
         }
 
@@ -298,11 +304,17 @@
             let grp = s.school_group || "Other";
             const sId = String(s.school_id).trim();
             
-            // Priority: Explicit -> Fallback
+            // Priority: Explicit Assignment -> Fallback Map -> "Unassigned"
             let coordName = assignmentMap[sId];
             if (!coordName) {
-                 let coordKey = Object.keys(FALLBACK_COORD_MAP).find(k => grp.includes(k)) || 'Other';
-                 coordName = FALLBACK_COORD_MAP[coordKey];
+                 // Only verify group fallback if assignment is missing
+                 let coordKey = Object.keys(FALLBACK_COORD_MAP).find(k => grp.includes(k));
+                 // Avoid defaulting to 'Central' (FALLBACK_COORD_MAP['Other']) unless explicit
+                 if (coordKey && coordKey !== 'Other') {
+                     coordName = FALLBACK_COORD_MAP[coordKey];
+                 } else {
+                     coordName = 'Unassigned'; 
+                 }
             }
             
             // Strict key mapping
@@ -321,7 +333,7 @@
 
         sessions.forEach(s => {
             const sId = String(s.school_id).trim();
-            const sc = schoolMap[sId] || { name: 'Unknown', coordinator: 'Admin' };
+            const sc = schoolMap[sId] || { name: 'Unknown', coordinator: 'Unassigned' };
             
             const actTId = String(s.actual_teacher_id).trim();
             const actT = userMap[actTId] || { name: actTId, type: 'Part-time' };
@@ -378,18 +390,38 @@
             }
         });
 
-        // 3. Process Absentees & Impact
-        const absentees = leaves.map(l => {
-            const tid = String(l.teacher_id).trim();
-            const u = userMap[tid] || { name: tid, type: "?" };
-            
-            const impactList = [];
-            sessions.forEach(s => {
-                const sOrgId = String(s.original_teacher_id).trim();
-                const sActId = String(s.actual_teacher_id).trim();
+        // 3. Process Absentees & Impact (Deduplicated)
+        const uniqueAbsentees = new Map();
 
+        (leaves || []).forEach(l => {
+            // Simplify: 1 record per teacher ID
+            const tid = String(l.teacher_id).trim();
+            
+            if (!uniqueAbsentees.has(tid)) {
+                 const u = userMap[tid] || { name: tid, type: "?" };
+                 uniqueAbsentees.set(tid, {
+                     id: tid,
+                     name: u.name,
+                     type: u.type,
+                     period: l.leave_type || "Leave", 
+                     reason: l.reason || "N/A", 
+                     impacts: [] // Will calc below to be safe
+                 });
+            }
+        });
+
+        // Calculate impacts strictly for the unique set
+        const absentees = Array.from(uniqueAbsentees.values()).map(teacherObj => {
+            const tid = teacherObj.id;
+            const impactList = [];
+            
+            sessions.forEach(s => {
+                // Check if this teacher (tid) is the ORIGINAL teacher of a session
+                const sOrgId = String(s.original_teacher_id).trim();
+                
                 if (sOrgId === tid) {
                      const sc = schoolMap[String(s.school_id).trim()] || { name: 'Unknown' };
+                     const sActId = String(s.actual_teacher_id).trim();
                      const actT = userMap[sActId] || { name: 'Unknown' };
                      
                      let st = "Normal";
@@ -408,10 +440,7 @@
             });
 
             return {
-                name: u.name,
-                type: u.type,
-                period: l.leave_type || "Leave",
-                reason: l.reason || "N/A",
+                ...teacherObj,
                 impacts: impactList
             };
         });
