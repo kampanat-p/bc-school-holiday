@@ -19,7 +19,7 @@
   <!-- Header -->
   <div class="bg-slate-800 text-white p-5 sticky top-0 z-50 shadow-md">
     <div class="flex justify-between items-center">
-      <h1 class="text-lg font-bold">BC Dashboard</h1>
+      <h1 class="text-lg font-bold">BC Dashboard <span class="text-[9px] font-normal text-slate-400 ml-1">v2.5 (Fix Map/Sync)</span></h1>
       <div class="flex items-center gap-2">
          <a href="timeline.html" target="_blank" class="text-xs bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded transition no-underline flex items-center gap-1">
            <i class="fas fa-stream"></i> Timeline
@@ -214,9 +214,9 @@
         const userMap = {};
         users.forEach(u => {
             // Logic: user_type or position 210 = Full Time. 
-            // Note: Data might be int or string.
             const isFT = (String(u.user_type) === '210' || String(u.position) === '210');
-            userMap[u.user_id] = {
+            // Strict key mapping
+            userMap[String(u.user_id).trim()] = {
                 name: (u.firstname_en || "Unknown") + " " + (u.lastname_en ? u.lastname_en.charAt(0)+"." : ""),
                 type: isFT ? 'Full-time' : 'Part-time' 
             };
@@ -225,11 +225,11 @@
         const schoolMap = {};
         schools.forEach(s => {
             let grp = s.school_group || "Other";
-            // Normalise group name for coord mapping
             let coordKey = Object.keys(COORD_MAP).find(k => grp.includes(k)) || 'Other';
             
-            schoolMap[s.school_id] = {
-                name: s.school_code || s.school_name_en, // Prefer Code for short display
+            // Strict key mapping
+            schoolMap[String(s.school_id).trim()] = {
+                name: s.school_code || s.school_name_en, 
                 group: grp,
                 coordinator: COORD_MAP[coordKey]
             };
@@ -242,17 +242,24 @@
         const metrics = { total: 0, covered: 0, cancelBC: 0, cancelSchool: 0 };
 
         sessions.forEach(s => {
-            const sc = schoolMap[s.school_id] || { name: 'Unknown', coordinator: 'Admin' };
-            const actT = userMap[s.actual_teacher_id] || { name: s.actual_teacher_id, type: 'Part-time' };
-            const orgT = userMap[s.original_teacher_id] || { name: s.original_teacher_id, type: 'Part-time' };
+            const sId = String(s.school_id).trim();
+            const sc = schoolMap[sId] || { name: 'Unknown', coordinator: 'Admin' };
+            
+            const actTId = String(s.actual_teacher_id).trim();
+            const actT = userMap[actTId] || { name: actTId, type: 'Part-time' };
+            
+            const orgTId = String(s.original_teacher_id).trim();
+            const orgT = userMap[orgTId] || { name: orgTId, type: 'Part-time' };
             
             const startStr = (s.start_time || "").substring(0, 5);
             const endStr = (s.end_time || "").substring(0, 5);
             
             let status = "Normal";
-            if (String(s.status).startsWith("Cancelled")) {
-                status = String(s.status); // "Cancelled (BC)" etc
-            } else if (s.status === "Substituted" || s.actual_teacher_id !== s.original_teacher_id) {
+            let rawStatus = String(s.status || "");
+
+            if (rawStatus.startsWith("Cancelled")) {
+                status = rawStatus; // "Cancelled (BC)" etc
+            } else if (rawStatus === "Substituted" || (s.actual_teacher_id && s.original_teacher_id && s.actual_teacher_id !== s.original_teacher_id)) {
                 status = "Cover";
             }
 
@@ -271,7 +278,7 @@
                 teacherType: actT.type,
                 coordinator: sc.coordinator,
                 status: status,
-                originalTeacher: orgT.name // Hidden field for finding covers. Or we can just use original logic if covers are explicit.
+                originalTeacher: orgT.name 
             };
             dashSessions.push(item);
             
@@ -280,33 +287,37 @@
             filters.schools.add(sc.name);
             filters.coordinators.add(sc.coordinator);
 
-            // Cencellations List
+            // Cancellations List (Simplified for now)
             if (status.includes("Cancelled")) {
                 cancellations.push({
                     school: sc.name,
                     date: s.date,
                     time: `${startStr}-${endStr}`,
                     class: s.class_name,
-                    by: status.includes("School") ? "School" : "Braincloud"
+                    by: status.includes("School") ? "School" : "Braincloud",
+                    reason: "Cancelled by " + (status.includes("School") ? "School" : "Braincloud")
                 });
             }
         });
 
         // 3. Process Absentees & Impact
         const absentees = leaves.map(l => {
-            const u = userMap[l.teacher_id] || { name: l.teacher_id, type: "?" };
+            const tid = String(l.teacher_id).trim();
+            const u = userMap[tid] || { name: tid, type: "?" };
             
-            // Find Impact
-            // "Impacts" are sessions where the ABSENT teacher (l.teacher_id) was the ORIGINAL teacher
             const impactList = [];
             sessions.forEach(s => {
-                if (s.original_teacher_id === l.teacher_id) {
-                     const sc = schoolMap[s.school_id] || { name: 'Unknown' };
-                     const actT = userMap[s.actual_teacher_id] || { name: 'Unknown' };
+                const sOrgId = String(s.original_teacher_id).trim();
+                const sActId = String(s.actual_teacher_id).trim();
+
+                if (sOrgId === tid) {
+                     const sc = schoolMap[String(s.school_id).trim()] || { name: 'Unknown' };
+                     const actT = userMap[sActId] || { name: 'Unknown' };
                      
                      let st = "Normal";
-                     if (String(s.status).startsWith("Cancelled")) st = String(s.status);
-                     else if (s.actual_teacher_id !== s.original_teacher_id) st = "Cover";
+                     let rs = String(s.status || "");
+                     if (rs.startsWith("Cancelled")) st = rs;
+                     else if (sActId !== sOrgId) st = "Cover";
 
                      impactList.push({
                          time: (s.start_time||"").substring(0,5),
