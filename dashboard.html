@@ -177,6 +177,7 @@
         <div class="flex gap-2 mt-2">
            <button onclick="setFilterMode('teacher')" id="btn-f-teacher" class="flex-1 border rounded text-xs py-1 bg-green-100 border-green-500 text-green-800">Teacher</button>
            <button onclick="setFilterMode('school')" id="btn-f-school" class="flex-1 border rounded text-xs py-1">School</button>
+           <button onclick="setFilterMode('group')" id="btn-f-group" class="flex-1 border rounded text-xs py-1">Group</button>
            <button onclick="setFilterMode('coord')" id="btn-f-coord" class="flex-1 border rounded text-xs py-1">Coord.</button>
         </div>
         <select id="filterSelect" class="w-full mt-3 p-2 border rounded text-sm" onchange="applyFilter()">
@@ -355,7 +356,7 @@
         // 2. Process Sessions
         const dashSessions = [];
         const cancellations = [];
-        const filters = { teachers: new Set(), schools: new Set(), coordinators: new Set() };
+        const filters = { teachers: new Set(), schools: new Set(), coordinators: new Set(), groups: new Set() };
         const metrics = { total: 0, covered: 0, cancelBC: 0, cancelSchool: 0 };
 
         sessions.forEach(s => {
@@ -404,6 +405,7 @@
             filters.teachers.add(actT.name);
             filters.schools.add(sc.name);
             filters.coordinators.add(sc.coordinator);
+            filters.groups.add(sc.group); // <--- Added Group Filter logic
 
             // Cancellations List (Simplified for now)
             if (status.includes("Cancelled")) {
@@ -485,7 +487,8 @@
             filters: {
                 teachers: Array.from(filters.teachers).sort(),
                 schools: Array.from(filters.schools).sort(),
-                coordinators: Array.from(filters.coordinators).sort()
+                coordinators: Array.from(filters.coordinators).sort(),
+                groups: Array.from(filters.groups).sort()
             }
         };
     }
@@ -533,6 +536,15 @@
       }
     }
 
+    function filterByGroup(groupName) {
+        logDebug("Filtering by group: " + groupName);
+        switchTab('schedule');
+        setFilterMode('group');
+        const sel = document.getElementById('filterSelect');
+        sel.value = groupName;
+        applyFilter();
+    }
+
     function renderGroupSummary() {
         const list = document.getElementById('groupList');
         list.innerHTML = "";
@@ -565,7 +577,7 @@
             const st = styleMap[k] || styleMap["Other"];
             
             list.innerHTML += `
-               <div class="p-4 rounded-lg shadow-sm border border-gray-100 flex justify-between items-center" style="background-color:${st.bg}">
+               <div onclick="filterByGroup('${k}')" class="cursor-pointer p-4 rounded-lg shadow-sm border border-gray-100 flex justify-between items-center transition hover:shadow-md hover:scale-[1.02]" style="background-color:${st.bg}">
                   <div>
                       <div class="font-bold text-lg" style="color:${st.text}">${k}</div>
                       <div class="text-xs opacity-70 mt-1" style="color:${st.text}">
@@ -584,7 +596,7 @@
     function setFilterMode(mode) {
       window.currentStatusFilter = 'Total'; // Reset Status Filter
       currentFilterMode = mode;
-      ['teacher', 'school', 'coord'].forEach(m => {
+      ['teacher', 'school', 'coord', 'group'].forEach(m => {
         document.getElementById('btn-f-' + m).className = (m === mode) 
           ? "flex-1 border rounded text-xs py-1 bg-green-100 border-green-500 text-green-800 font-bold"
           : "flex-1 border rounded text-xs py-1 text-gray-600";
@@ -597,6 +609,7 @@
       if(mode === 'teacher') items = rawData.filters.teachers;
       if(mode === 'school') items = rawData.filters.schools;
       if(mode === 'coord') items = rawData.filters.coordinators;
+      if(mode === 'group') items = rawData.filters.groups;
 
       items.forEach(item => {
         const opt = document.createElement('option');
@@ -639,6 +652,7 @@
         if (currentFilterMode === 'teacher') return s.teacher === val;
         if (currentFilterMode === 'school') return s.school === val;
         if (currentFilterMode === 'coord') return s.coordinator === val;
+        if (currentFilterMode === 'group') return s.group === val;
       });
 
       // Update Filter Count Log
