@@ -132,14 +132,20 @@
     const SUPABASE_URL = "https://cgznmxcecljfybcgujjb.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ";
     const DISCORD_WEBHOOK_URL = "https://discordapp.com/api/webhooks/1461190566518853737/u7Fc4QlRExojVwUDAyMEiKSlTsVt6M5NzBW55oegDqLwDr1aSm4lmUNnq1xQBi_bmc_w";
-    const APP_VERSION = "v2.1.2 (Fix Init)"; // Version Number
+    const APP_VERSION = "v2.1.3 (Debug Mode)"; // Version Number
 
     // Global Error Handler (Moved to top)
     window.onerror = function(msg, url, line) {
        const statusDiv = document.getElementById('status-text');
-       if(statusDiv) statusDiv.innerHTML = `<span style="color:red; font-weight:bold;">Error: ${msg}</span>`;
+       if(statusDiv) statusDiv.innerHTML += `<br><span style="color:red; font-size:10px;">Err: ${msg} (L${line})</span>`;
        return false; 
     };
+
+    function logStatus(msg) {
+        console.log(msg);
+        const el = document.getElementById('status-text');
+        if(el) el.innerHTML = msg;
+    }
 
     // ***********************************************
     // 🛡️ SAFE INITIALIZATION
@@ -164,36 +170,65 @@
       vDiv.innerText = APP_VERSION;
       document.body.appendChild(vDiv);
       
-      // Safety Timeout: Force show app if stuck for 8 seconds
+      logStatus("System starting...");
+
+      // Safety Timeout
       setTimeout(() => {
         const loader = document.getElementById('loading');
         if (loader && loader.style.display !== 'none') {
-             console.warn("Force loading due to timeout");
-             loader.style.display = 'none';
-             document.getElementById('main-container').classList.remove('hidden');
-             document.getElementById('status-text').innerHTML += "<br><span style='color:orange'>Timeout: Forcing Display</span>";
+             logStatus("<span style='color:orange'>Timeout: Force allow access</span>");
+             setTimeout(() => {
+                loader.style.display = 'none';
+                document.getElementById('main-container').classList.remove('hidden');
+             }, 1000);
         }
-      }, 5000); // Reduced to 5s
+      }, 5000);
 
       // Check Critical Dependencies
       if (!supabase) {
-           document.getElementById('status-text').innerHTML = "<span style='color:red'>Critical: Supabase SDK Failed to Load.</span>";
-           alert("ไม่สามารถติดต่อฐานข้อมูล (Supabase SDK Missing) กรุณา Refresh หรือตรวจสอบอินเทอร์เน็ต");
-           return; 
+           // Try lazy init
+           if (typeof window.supabase !== 'undefined') {
+               supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+           } else {
+               logStatus("<span style='color:red'>Critical: Supabase SDK Not Found.</span>");
+               return; 
+           }
       }
 
       try {
-          // 1. Load Schools (From Supabase)
-          await fetchSchoolsSupabase();
+          // Parallel Execution to prevent one blocking the other
+          logStatus("Loading Data & Login...");
           
-          // 2. Set Date
-          const today = new Date().toISOString().split('T')[0];
-          try {
-             document.getElementById('startDate').value = today;
-             document.getElementById('endDate').value = today;
-          } catch(e) { console.warn("Date input error", e); }
+          const schoolPromise = fetchSchoolsSupabase();
+          
+          const liffPromise = (async () => {
+              try {
+                await liff.init({ liffId: MY_LIFF_ID });
+                if (liff.isLoggedIn()) {
+                  const profile = await liff.getProfile();
+                  userProfile = profile;
+                  document.getElementById('userNameDisplay').innerText = profile.displayName;
+                  document.getElementById('userPic').src = profile.pictureUrl;
+                } else {
+                  liff.login(); 
+                }
+              } catch (err) {
+                console.error("LIFF Error", err);
+                logStatus("LIFF Failed (Guest Mode) " + err.message);
+              }
+          })();
 
-          // 3. Init LIFF
+          await Promise.allSettled([schoolPromise, liffPromise]);
+          
+          logStatus("Ready.");
+          // Show App
+          document.getElementById('loading').style.display = 'none';
+          document.getElementById('main-container').classList.remove('hidden');
+      
+      } catch (fatalErr) {
+          logStatus("Fatal Error: " + fatalErr.message);
+      }
+    };
           try {
             await liff.init({ liffId: MY_LIFF_ID });
             if (liff.isLoggedIn()) {
