@@ -60,6 +60,18 @@
     .vis-item.group-obec-south { background-color: #FFDF7F; border-color: #FFCF3F; color: #795548 !important; }
     .vis-item.group-other { background-color: #E2E8F0; border-color: #CBD5E1; color: #475569 !important; }
     
+    /* [ANIMATION v10.7] Live Pulse */
+    @keyframes pulse-live-border {
+        0% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7); border-color: #4CAF50; }
+        70% { box-shadow: 0 0 0 10px rgba(76, 175, 80, 0); border-color: #4CAF50; }
+        100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0); border-color: #4CAF50; }
+    }
+    .vis-item.status-live {
+        z-index: 1000;
+        animation: pulse-live-border 2s infinite;
+        border: 2px solid #4CAF50 !important;
+    }
+
     .vis-item.status-cancelled { background-color: #ffffff !important; color: #d32f2f !important; border: 2px dashed #d32f2f !important; }
     .vis-item.status-covered { border-top: 4px solid #00E676 !important; box-shadow: 0 0 5px rgba(0,0,0,0.2); }
     .vis-item.status-simulated { background-color: rgba(156, 39, 176, 0.9) !important; border: 2px dashed #7B1FA2 !important; color: white !important; box-shadow: 0 4px 8px rgba(0,0,0,0.3); z-index: 1000; }
@@ -204,7 +216,7 @@
   <div id="mouse-tooltip">00:00</div>
 
   <div id="sim-controls">
-    <div id="version-display" style="position:fixed; bottom:5px; right:5px; opacity:0.5; font-size:10px; z-index:9999; color:#888;">v10.6 (Pastel Colors)</div>
+    <div id="version-display" style="position:fixed; bottom:5px; right:5px; opacity:0.5; font-size:10px; z-index:9999; color:#888;">v10.7 (Live Pulse)</div>
       <div class="sim-status">
           <span class="sim-status-title">🔮 Simulation Mode Active</span>
           <span class="sim-status-desc">Changes are temporary. Click items to simulate moves.</span>
@@ -429,6 +441,18 @@
         let visibleTeachers = new Set();
         let logs = { cancelled: [], covered: [], stats: { total: 0, cancel: 0, cover: 0 }, generatedAt: new Date().toLocaleTimeString() };
         
+        // --- TIME CHECK for "LIVE" status (Bangkok) ---
+        const now = new Date();
+        const bkkTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Bangkok"}));
+        const currentH = bkkTime.getHours();
+        const currentM = bkkTime.getMinutes();
+        const currentTotalMins = currentH * 60 + currentM;
+
+        // Check if selected date is Today
+        // targetDate is 'YYYY-MM-DD'
+        const bkkDateStr = bkkTime.toLocaleDateString('en-CA', { timeZone: "Asia/Bangkok" });
+        const isToday = (targetDate === bkkDateStr);
+
         if (rows && rows.length > 0) {
             debugLog(`First Row: Actual=${rows[0].actual_teacher_id}, Original=${rows[0].original_teacher_id}`);
             
@@ -450,6 +474,18 @@
                 let endTime = r.end_time.substring(0, 5);
                 let status = String(r.status || "");
                 let isCancelled = status.startsWith("Cancelled");
+
+                // --- Live Check ---
+                let isLive = false;
+                if(isToday && !isCancelled) {
+                    const [h1, m1] = startTime.split(':').map(Number);
+                    const [h2, m2] = endTime.split(':').map(Number);
+                    const startMins = h1 * 60 + m1;
+                    const endMins = h2 * 60 + m2;
+                    if(currentTotalMins >= startMins && currentTotalMins < endMins) {
+                        isLive = true;
+                    }
+                }
                 
                 logs.stats.total++;
 
@@ -490,6 +526,11 @@
                         class: r.class_name, actual: actName, original: orgName
                     });
                     logs.stats.cover++;
+                }
+
+                if (isLive) {
+                    finalClass += ' status-live';
+                    innerContent = `<div style="display:inline-block; width:6px; height:6px; background:#4CAF50; border-radius:50%; margin-right:2px;"></div>` + innerContent;
                 }
 
                 items.push({
