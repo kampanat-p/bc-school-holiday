@@ -52,12 +52,31 @@
     <!-- Form Section -->
     <div class="p-4 space-y-4 flex-grow">
         
-        <!-- Teacher Select -->
-        <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+        <!-- Teacher Select (Searchable) -->
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 relative">
             <label class="block text-sm font-bold text-gray-700 mb-2">👤 Select Teacher</label>
-            <select id="teacherSelect" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-green-500 transition" onchange="checkConflicts()">
-                <option value="" disabled selected>-- Loading Teachers --</option>
-            </select>
+            
+            <!-- Search Input -->
+            <div class="relative">
+                <input type="text" id="teacherSearch" placeholder="Type to search (e.g. John)..." 
+                       class="w-full p-3 pl-10 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-green-500 transition"
+                       autocomplete="off" oninput="onTeacherSearch()" onfocus="onTeacherSearch()">
+                <div class="absolute left-3 top-3.5 text-gray-400">
+                    <i class="fas fa-search"></i>
+                </div>
+                <!-- Clear Button -->
+                <button onclick="clearTeacherSearch()" id="clearSearchBtn" class="hidden absolute right-3 top-3.5 text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times-circle"></i>
+                </button>
+            </div>
+
+            <!-- Hidden Value Store -->
+            <input type="hidden" id="teacherSelect">
+
+            <!-- Dropdown Results -->
+            <div id="teacherDropdown" class="hidden absolute w-full left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto z-50">
+                <!-- Items populated by JS -->
+            </div>
         </div>
 
         <!-- Date & Time -->
@@ -203,16 +222,77 @@
             name: `${u.firstname_en} ${u.lastname_en || ''}`.trim(),
             type: u.user_type === 210 ? 'FT' : 'PT'
         }));
-
-        const sel = document.getElementById('teacherSelect');
-        sel.innerHTML = '<option value="" disabled selected>-- Select Teacher --</option>';
-        state.teachers.forEach(t => {
-            const opt = document.createElement('option');
-            opt.value = t.id;
-            opt.text = `${t.name} (${t.type})`;
-            sel.appendChild(opt);
-        });
+        
+        // Remove Select population logic
     }
+
+    // --- Search Logic ---
+    window.onTeacherSearch = () => {
+        const input = document.getElementById('teacherSearch');
+        const q = input.value.toLowerCase();
+        const list = document.getElementById('teacherDropdown');
+        const clearBtn = document.getElementById('clearSearchBtn');
+        
+        // Toggle Clear Button
+        if(q.length > 0) clearBtn.classList.remove('hidden');
+        else clearBtn.classList.add('hidden');
+
+        // If user is clearing or typing new stuff, invalidate previous selection
+        const currentId = document.getElementById('teacherSelect').value;
+        if(currentId) {
+             // Optional: Strict mode - if they type, we treat it as searching again
+             document.getElementById('teacherSelect').value = "";
+             document.getElementById('conflictBox').classList.add('hidden');
+        }
+
+        if(q.length === 0) {
+            list.classList.add('hidden');
+            return;
+        }
+
+        // Filter
+        const matches = state.teachers.filter(t => t.name.toLowerCase().includes(q));
+        list.innerHTML = "";
+        
+        if(matches.length === 0) {
+             list.innerHTML = '<div class="p-4 text-center text-gray-400 text-sm">No matches found</div>';
+        } else {
+             matches.forEach(t => {
+                 const div = document.createElement('div');
+                 div.className = "p-3 hover:bg-green-50 cursor-pointer border-b border-gray-100 last:border-0 flex justify-between items-center transition";
+                 div.innerHTML = `<span class="font-bold text-gray-700">${t.name}</span> <span class="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">${t.type}</span>`;
+                 div.onclick = () => selectTeacher(t);
+                 list.appendChild(div);
+             });
+        }
+        list.classList.remove('hidden');
+    };
+
+    window.selectTeacher = (t) => {
+        document.getElementById('teacherSearch').value = t.name;
+        document.getElementById('teacherSelect').value = t.id;
+        document.getElementById('teacherDropdown').classList.add('hidden');
+        document.getElementById('clearSearchBtn').classList.remove('hidden');
+        checkConflicts();
+    };
+
+    window.clearTeacherSearch = () => {
+        document.getElementById('teacherSearch').value = "";
+        document.getElementById('teacherSelect').value = "";
+        document.getElementById('teacherDropdown').classList.add('hidden');
+        document.getElementById('clearSearchBtn').classList.add('hidden');
+        document.getElementById('conflictBox').classList.add('hidden');
+        document.getElementById('teacherSearch').focus();
+    };
+    
+    // Close dropdown on click outside
+    document.addEventListener('click', function(event) {
+        const box = document.getElementById('teacherDropdown');
+        const input = document.getElementById('teacherSearch');
+        if (!box.contains(event.target) && !input.contains(event.target)) {
+            box.classList.add('hidden');
+        }
+    });
 
     // --- Interaction ---
     window.setType = (type) => {
