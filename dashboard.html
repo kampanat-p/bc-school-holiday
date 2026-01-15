@@ -12,6 +12,33 @@
     .tab-active { border-bottom: 3px solid #16a34a; color: #16a34a; font-weight: bold; }
     .tab-inactive { color: #64748b; }
     .card { background: white; border-radius: 12px; padding: 15px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    
+    /* Live Class Animation */
+    @keyframes pulse-green {
+      0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.7); }
+      70% { box-shadow: 0 0 0 6px rgba(22, 163, 74, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+    }
+    @keyframes fade-live {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.8; }
+    }
+    .card-live {
+      border: 2px solid #16a34a !important; /* Green-600 */
+      animation: pulse-green 2s infinite;
+    }
+    .badge-live {
+      background-color: #16a34a;
+      color: white;
+      font-size: 9px;
+      padding: 1px 4px;
+      border-radius: 4px;
+      font-weight: bold;
+      margin-left: 5px;
+      vertical-align: middle;
+      display: inline-block;
+      animation: fade-live 1s infinite;
+    }
   </style>
 </head>
 <body class="pb-20">
@@ -19,7 +46,7 @@
   <!-- Header -->
   <div class="bg-slate-800 text-white p-5 sticky top-0 z-50 shadow-md">
     <div class="flex justify-between items-center">
-      <h1 class="text-lg font-bold">BC Dashboard <span class="text-[9px] font-normal text-slate-400 ml-1">v3.4.5 (Cover Info)</span></h1>
+      <h1 class="text-lg font-bold">BC Dashboard <span class="text-[9px] font-normal text-slate-400 ml-1">v3.5 (Live Now)</span></h1>
       <div class="flex items-center gap-2">
          <button onclick="document.getElementById('debugPanel').classList.toggle('hidden')" class="text-xs bg-slate-600 px-2 py-1 rounded text-slate-300">🐞</button>
          <a href="timeline.html" target="_blank" class="text-xs bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded transition no-underline flex items-center gap-1">
@@ -532,6 +559,20 @@
       
       const statusMode = window.currentStatusFilter || 'Total';
 
+      // --- TIME CHECK for "LIVE" status ---
+      const now = new Date();
+      // Bangkok Time
+      const bkkTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Bangkok"}));
+      const currentH = bkkTime.getHours();
+      const currentM = bkkTime.getMinutes();
+      const currentTotalMins = currentH * 60 + currentM;
+
+      // Check if selected date is Today (YYYY-MM-DD compare)
+      const picker = document.getElementById('datePicker');
+      // note: picker.value is 'YYYY-MM-DD' from en-CA format
+      const todayStr = bkkTime.toLocaleDateString('en-CA', { timeZone: "Asia/Bangkok" });
+      const isToday = (picker && picker.value === todayStr);
+
       const filtered = rawData.sessions.filter(s => {
         // 1. Check Status Filter
         if (statusMode === 'Cover' && s.status !== 'Cover') return false;
@@ -557,12 +598,29 @@
         const isCover = s.status === 'Cover';
         const isCancel = s.status.includes('Cancel');
         
+        // --- Calculate Live Status ---
+        let isLive = false;
+        if (isToday && !isCancel) { 
+            // format: "08:30-09:20"
+            const [t1, t2] = s.time.split('-');
+            if (t1 && t2) {
+                const [h1, m1] = t1.split(':').map(Number);
+                const [h2, m2] = t2.split(':').map(Number);
+                const startMins = h1 * 60 + m1;
+                const endMins = h2 * 60 + m2;
+                
+                if (currentTotalMins >= startMins && currentTotalMins < endMins) {
+                    isLive = true;
+                }
+            }
+        }
+
         let statusBadge = "";
         if(isCover) statusBadge = `<span class="bg-yellow-100 text-yellow-800 text-[10px] px-1 rounded ml-1">Sub</span>`;
         if(isCancel) statusBadge = `<span class="bg-red-100 text-red-800 text-[10px] px-1 rounded ml-1">Cancel</span>`;
 
         const html = `
-          <div class="card bg-white p-3 rounded-lg shadow-sm border border-gray-100 ${isCancel ? 'opacity-60 bg-gray-50' : ''}">
+          <div class="card bg-white p-3 rounded-lg shadow-sm border border-gray-100 ${isCancel ? 'opacity-60 bg-gray-50' : ''} ${isLive ? 'card-live' : ''}">
             <div class="flex justify-between items-start">
               <div>
                 <div class="flex items-center">
@@ -570,7 +628,10 @@
                   <span class="text-xs bg-gray-100 text-gray-500 px-1 rounded ml-2">${s.class}</span>
                   ${statusBadge}
                 </div>
-                <div class="text-xs text-gray-500 mt-1">🕒 ${s.time}</div>
+                <div class="text-xs text-gray-500 mt-1 flex items-center">
+                    <span>🕒 ${s.time}</span>
+                    ${isLive ? '<span class="badge-live">LIVE</span>' : ''}
+                </div>
                 <div class="text-xs text-gray-700 mt-1">
                    <div class="flex items-center">
                      <span>👤 ${s.teacher}</span>
