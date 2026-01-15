@@ -50,8 +50,8 @@
     .loading-text { margin-top: 15px; color: #555; font-size: 16px; font-weight: bold; }
     .error-text { margin-top: 10px; color: #d32f2f; font-size: 14px; font-weight: bold; padding: 10px; background: #ffebee; border-radius: 4px; display: none; text-align: center; max-width: 80%; }
 
-    .vis-item { border-right: 2px solid white !important; border-left: 2px solid white !important; border-radius: 0px !important; opacity: 0.95; height: 40px !important; display: flex !important; align-items: center; justify-content: center; cursor: pointer; color: #333 !important; } 
-    .vis-item .vis-item-content { padding: 0 5px; font-size: 11px; font-weight: 600; line-height: 1.2; text-align: center; width: 100%; color: inherit; }
+    .vis-item { border-right: 2px solid white !important; border-left: 2px solid white !important; border-radius: 0px !important; opacity: 0.95; height: 40px !important; display: flex !important; align-items: center; justify-content: flex-start !important; cursor: pointer; color: #333 !important; } 
+    .vis-item .vis-item-content { padding: 0 5px 0 8px; font-size: 11px; font-weight: 600; line-height: 1.2; text-align: left; width: 100%; color: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     
     /* [COLOR UPDATE v10.6] Pastel Palette */
     .vis-item.group-thesaban { background-color: #FDB2D7; border-color: #F885BE; color: #880E4F !important; }
@@ -213,7 +213,7 @@
   <div id="mouse-tooltip">00:00</div>
 
   <div id="sim-controls">
-    <div id="version-display" style="position:fixed; bottom:5px; right:5px; opacity:0.6; font-size:10px; z-index:9999; color:#666; background:rgba(255,255,255,0.7); padding:2px 4px; border-radius:3px;">v10.11 (Touch Zoom Only)</div>
+    <div id="version-display" style="position:fixed; bottom:5px; right:5px; opacity:0.6; font-size:10px; z-index:9999; color:#666; background:rgba(255,255,255,0.7); padding:2px 4px; border-radius:3px;">v10.12 (Left Align)</div>
       <div class="sim-status">
           <span class="sim-status-title">🔮 Simulation Mode Active</span>
           <span class="sim-status-desc">Changes are temporary. Click items to simulate moves.</span>
