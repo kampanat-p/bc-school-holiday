@@ -307,8 +307,12 @@
     };
 
     window.checkConflicts = async () => {
-        const tid = document.getElementById('teacherSelect').value;
+        let tid = document.getElementById('teacherSelect').value;
         const date = document.getElementById('leaveDate').value;
+        const manualName = document.getElementById('teacherSearch').value.trim();
+
+        // If no ID but text exists, assume manual
+        if((!tid && manualName.length > 0)) tid = "MANUAL"; 
         
         if(!tid || !date) return;
 
@@ -317,6 +321,11 @@
         const msg = document.getElementById('conflictMsg');
         box.classList.add('hidden');
         msg.innerHTML = "";
+        
+        // Skip conflict check for manual names OR use Name as lookup?
+        // Let's rely on ID if available. If manual, we can't easily check IDs.
+        // We could search by name but it's unreliable. Let's skip for manual for now.
+        if (tid === "MANUAL") return;
 
         // 1. Check Existing Requests (Pending) in requests_log
         const { data: reqs } = await state.supabase.from('requests_log')
@@ -387,18 +396,35 @@
 
     // --- Submission ---
     window.submitData = async () => {
-        const tid = document.getElementById('teacherSelect').value;
+        let tid = document.getElementById('teacherSelect').value;
+        const manualName = document.getElementById('teacherSearch').value.trim();
         const date = document.getElementById('leaveDate').value;
         const reason = document.getElementById('reason').value;
         const startT = document.getElementById('startTime').value;
         const endT = document.getElementById('endTime').value;
+        
+        // Manual Teacher Logic
+        let teacherName = "";
+        let isManual = false;
 
-        if(!tid || !date) return alert("Please select Teacher and Date.");
+        if (tid) {
+            const teacherObj = state.teachers.find(t => String(t.id) === String(tid));
+            teacherName = teacherObj ? teacherObj.name : tid;
+        } else if (manualName.length > 0) {
+            // Manual Entry
+            teacherName = manualName + " (Manual)";
+            tid = manualName; // Use name as ID
+            isManual = true;
+        } else {
+            return alert("Please select or type a Teacher.");
+        }
 
-        const teacherObj = state.teachers.find(t => String(t.id) === String(tid));
-        const teacherName = teacherObj ? teacherObj.name : tid;
+        if(!date) return alert("Please select a Date.");
 
-        if(!confirm(`Submit Request?\n\nTeacher: ${teacherName}\nDate: ${date}\nTime: ${startT}-${endT}\nType: ${state.selectedType}`)) return;
+        let confirmMsg = `Submit Request?\n\nTeacher: ${teacherName}\nDate: ${date}\nTime: ${startT}-${endT}\nType: ${state.selectedType}`;
+        if(isManual) confirmMsg += `\n\n⚠️ Note: "${manualName}" is not in the system list. It will be saved as a partial/unmapped record.`;
+
+        if(!confirm(confirmMsg)) return;
 
         document.getElementById('loading').classList.remove('hidden');
 
@@ -407,15 +433,15 @@
                 created_at: new Date().toISOString(),
                 user_id: state.user.userId,
                 user_name: state.user.displayName,
-                teacher_id: tid, // New Column
-                school_code: "N/A", // Not School Specific
+                teacher_id: tid, 
+                school_code: "N/A", 
                 start_date: date,
-                end_date: date, // Single Day for now
+                end_date: date, 
                 reason: reason || "-",
                 status: 'Pending',
-                type: state.selectedType, // Sick, Business, etc.
-                request_category: 'Teacher', // New Column
-                affected_sessions: JSON.stringify({ startTime: startT, endTime: endT }) // Store time here
+                type: state.selectedType, 
+                request_category: 'Teacher', 
+                affected_sessions: JSON.stringify({ startTime: startT, endTime: endT }) 
             };
 
             const { error } = await state.supabase.from('requests_log').insert([payload]);
