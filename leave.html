@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <title>Teacher Leave Request</title>
+  
+  <!-- LIFF SDK -->
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <!-- Supabase -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Plotly/Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  
+  <style>
+     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f8f9fa; }
+     .loader { border: 4px solid #f3f3f3; border-radius: 50%; border-top: 4px solid #3498db; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+     .btn-primary { background-color: #06C755; color: white; }
+     .btn-primary:hover { background-color: #05a546; }
+     .btn-history { background-color: #3b82f6; color: white; }
+  </style>
+</head>
+<body class="pb-20">
+
+  <!-- Loading Overlay -->
+  <div id="loading" class="fixed inset-0 bg-white z-50 flex flex-col items-center justify-center">
+    <div class="loader mb-4"></div>
+    <p class="text-gray-500 font-bold">Loading System...</p>
+    <p id="error-msg" class="text-red-500 text-sm mt-2 hidden"></p>
+  </div>
+
+  <!-- Main Container -->
+  <div id="main-container" class="hidden min-h-screen flex flex-col">
+    
+    <!-- Header -->
+    <div class="bg-white p-4 shadow-sm sticky top-0 z-40">
+        <div class="flex items-center justify-between">
+            <h1 class="text-xl font-bold text-gray-800">📝 Leave Request</h1>
+            <div id="user-info" class="flex items-center gap-2">
+                <span id="user-name" class="text-xs text-gray-500 font-bold">Guest</span>
+                <img id="user-avatar" class="w-8 h-8 rounded-full border border-gray-200" src="https://via.placeholder.com/30">
+            </div>
+        </div>
+        <button onclick="showHistory()" class="mt-2 w-full text-xs py-2 rounded bg-blue-50 text-blue-600 font-bold border border-blue-100 flex items-center justify-center gap-2">
+            <i class="fas fa-history"></i> My Submission History
+        </button>
+    </div>
+
+    <!-- Form Section -->
+    <div class="p-4 space-y-4 flex-grow">
+        
+        <!-- Teacher Select -->
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+            <label class="block text-sm font-bold text-gray-700 mb-2">👤 Select Teacher</label>
+            <select id="teacherSelect" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-green-500 transition" onchange="checkConflicts()">
+                <option value="" disabled selected>-- Loading Teachers --</option>
+            </select>
+        </div>
+
+        <!-- Date & Time -->
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+            <label class="block text-sm font-bold text-gray-700 mb-2">📅 Date & Time</label>
+            <input type="date" id="leaveDate" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg mb-3" onchange="checkConflicts()">
+            
+            <div class="flex gap-2">
+                <div class="flex-1">
+                    <label class="text-xs text-gray-500 mb-1 block">Start Time</label>
+                    <input type="time" id="startTime" value="08:00" class="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg" onchange="checkConflicts()">
+                </div>
+                <div class="flex-1">
+                    <label class="text-xs text-gray-500 mb-1 block">End Time</label>
+                    <input type="time" id="endTime" value="16:00" class="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg" onchange="checkConflicts()">
+                </div>
+            </div>
+            
+            <!-- Type -->
+            <label class="block text-sm font-bold text-gray-700 mt-3 mb-2">📌 Type</label>
+            <div class="grid grid-cols-2 gap-2">
+                <button type="button" onclick="setType('Sick')" id="btn-Sick" class="type-btn p-2 rounded border text-sm text-center">Sick Leave</button>
+                <button type="button" onclick="setType('Business')" id="btn-Business" class="type-btn p-2 rounded border text-sm text-center">Business</button>
+                <button type="button" onclick="setType('Personal')" id="btn-Personal" class="type-btn p-2 rounded border text-sm text-center">Personal</button>
+                <button type="button" onclick="setType('Other')" id="btn-Other" class="type-btn p-2 rounded border text-sm text-center">Other</button>
+            </div>
+        </div>
+
+        <!-- Conflict Warning -->
+        <div id="conflictBox" class="hidden bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded shadow-sm">
+            <div class="flex items-start">
+                <div class="flex-shrink-0">
+                    <i class="fas fa-exclamation-triangle text-yellow-500 mt-1"></i>
+                </div>
+                <div class="ml-3">
+                    <h3 class="text-sm font-bold text-yellow-800">Duplicate Record Found</h3>
+                    <div id="conflictMsg" class="mt-1 text-xs text-yellow-700"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Details -->
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+             <label class="block text-sm font-bold text-gray-700 mb-2">📝 Reason / Details</label>
+             <textarea id="reason" rows="2" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-green-500" placeholder="ระบุเหตุผล..."></textarea>
+        </div>
+
+    </div>
+
+    <!-- Submit Button -->
+    <div class="p-4 bg-white border-t border-gray-100 sticky bottom-0 z-50">
+        <button onclick="submitData()" class="w-full btn-primary font-bold py-4 rounded-xl text-lg shadow-lg flex justify-center items-center gap-2">
+            <i class="fas fa-paper-plane"></i> Submit Request
+        </button>
+    </div>
+
+  </div>
+
+  <!-- History Modal -->
+  <div id="historyModal" class="hidden fixed inset-0 z-[60] bg-black bg-opacity-50 flex items-end sm:items-center justify-center">
+      <div class="bg-white w-full sm:w-[500px] h-[80vh] sm:h-auto sm:rounded-xl rounded-t-2xl flex flex-col animate-slide-up">
+          <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-2xl">
+              <h2 class="font-bold text-lg">📜 My History</h2>
+              <button onclick="document.getElementById('historyModal').classList.add('hidden')" class="text-gray-500"><i class="fas fa-times fa-lg"></i></button>
+          </div>
+          <div id="historyList" class="p-4 overflow-y-auto flex-1 space-y-3 bg-gray-100">
+               <!-- Items go here -->
+          </div>
+          <div class="p-4 border-t bg-white">
+              <button onclick="fetchHistory()" class="w-full py-2 bg-gray-100 text-gray-600 rounded-lg font-bold text-sm">Refresh</button>
+          </div>
+      </div>
+  </div>
+
+  <style>.animate-slide-up { animation: slideUp 0.3s ease-out; } @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }</style>
+
+  <!-- Logic -->
+  <script>
+    // Config
+    const CONFIG = {
+        SUPABASE_URL: "https://cgznmxcecljfybcgujjb.supabase.co",
+        SUPABASE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ",
+        LIFF_ID: "1657005479-7K1qXqJ3", // Keep same ID or change if needed. Assuming same LIFF App.
+        DISCORD_WEBHOOK: "https://discordapp.com/api/webhooks/1461264673394528393/fxIbjROnUWw5LZe4DW3csSvRQrBDkfFVPA4byZUBLfzyGIAkPDan7gYD0nWE2bYf8dLg"
+    };
+
+    let state = {
+        supabase: null,
+        user: { userId: "U_GUEST", displayName: "Guest", pictureUrl: "" },
+        teachers: [], // Array of {id, name, type}
+        selectedType: "Sick"
+    };
+
+    // --- Init ---
+    window.onload = async () => {
+        try {
+            // Setup Supabase
+            if(typeof supabase === 'undefined') throw new Error("Supabase Library Missing");
+            state.supabase = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+
+            // Fetch Teachers
+            await loadTeachers();
+
+            // Set Default Date
+            const today = new Date().toLocaleDateString('en-CA', { timeZone: "Asia/Bangkok" }); // YYYY-MM-DD
+            document.getElementById('leaveDate').value = today;
+
+            // Setup LIFF
+            if(typeof liff !== 'undefined') {
+                await liff.init({ liffId: CONFIG.LIFF_ID });
+                if (liff.isLoggedIn()) {
+                    const profile = await liff.getProfile();
+                    state.user = profile;
+                    document.getElementById('user-name').innerText = profile.displayName;
+                    document.getElementById('user-avatar').src = profile.pictureUrl || "https://via.placeholder.com/30";
+                } else {
+                    liff.login();
+                }
+            }
+
+            // Init UI
+            setType('Sick');
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('main-container').classList.remove('hidden');
+
+        } catch (e) {
+            document.getElementById('error-msg').innerText = e.message;
+            document.getElementById('error-msg').classList.remove('hidden');
+        }
+    };
+
+    async function loadTeachers() {
+        // Fetch teachers (dim_user)
+        const { data, error } = await state.supabase.from('dim_user')
+            .select('user_id, firstname_en, lastname_en, user_type')
+            .or('user_type.eq.210,user_type.eq.220') // Active Teachers
+            .order('firstname_en');
+        
+        if(error) throw error;
+        
+        state.teachers = data.map(u => ({
+            id: u.user_id,
+            name: `${u.firstname_en} ${u.lastname_en || ''}`.trim(),
+            type: u.user_type === 210 ? 'FT' : 'PT'
+        }));
+
+        const sel = document.getElementById('teacherSelect');
+        sel.innerHTML = '<option value="" disabled selected>-- Select Teacher --</option>';
+        state.teachers.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.text = `${t.name} (${t.type})`;
+            sel.appendChild(opt);
+        });
+    }
+
+    // --- Interaction ---
+    window.setType = (type) => {
+        state.selectedType = type;
+        document.querySelectorAll('.type-btn').forEach(b => {
+            b.className = "type-btn p-2 rounded border text-sm text-center w-full bg-white text-gray-600 border-gray-200 hover:bg-gray-50";
+        });
+        const activeBtn = document.getElementById('btn-' + type);
+        if(activeBtn) {
+            activeBtn.className = "type-btn p-2 rounded border text-sm text-center w-full bg-green-50 text-green-700 border-green-500 font-bold shadow-sm";
+        }
+    };
+
+    window.checkConflicts = async () => {
+        const tid = document.getElementById('teacherSelect').value;
+        const date = document.getElementById('leaveDate').value;
+        
+        if(!tid || !date) return;
+
+        // Reset
+        const box = document.getElementById('conflictBox');
+        const msg = document.getElementById('conflictMsg');
+        box.classList.add('hidden');
+        msg.innerHTML = "";
+
+        // 1. Check Existing Requests (Pending) in requests_log
+        const { data: reqs } = await state.supabase.from('requests_log')
+            .select('user_name, created_at')
+            .eq('teacher_id', tid)
+            .eq('start_date', date)
+            .neq('status', 'Rejected'); // Show for Pending or Approved
+            
+        // 2. Check Confirmed Unavailability (fact_teacher_unavailability)
+        // Note: This logic is simple date check. Could accept time overlap in future.
+        const { data: unav } = await state.supabase.from('fact_teacher_unavailability')
+            .select('*')
+            .eq('teacher_id', tid)
+            .eq('start_date', date);
+
+        let warnings = [];
+
+        if(reqs && reqs.length > 0) {
+            reqs.forEach(r => {
+                warnings.push(`• Request submitted by <b>${r.user_name}</b> (Pending/Appr).`);
+            });
+        }
+        
+        if(unav && unav.length > 0) {
+            unav.forEach(u => {
+                warnings.push(`• Confirmed record: ${u.leave_type || 'Leave'} (${u.start_time}-${u.end_time}).`);
+            });
+        }
+
+        if(warnings.length > 0) {
+            msg.innerHTML = warnings.join("<br>");
+            box.classList.remove('hidden');
+        }
+    };
+
+    // --- Submission ---
+    window.submitData = async () => {
+        const tid = document.getElementById('teacherSelect').value;
+        const date = document.getElementById('leaveDate').value;
+        const reason = document.getElementById('reason').value;
+        const startT = document.getElementById('startTime').value;
+        const endT = document.getElementById('endTime').value;
+
+        if(!tid || !date) return alert("Please select Teacher and Date.");
+
+        const teacherObj = state.teachers.find(t => String(t.id) === String(tid));
+        const teacherName = teacherObj ? teacherObj.name : tid;
+
+        if(!confirm(`Submit Request?\n\nTeacher: ${teacherName}\nDate: ${date}\nTime: ${startT}-${endT}\nType: ${state.selectedType}`)) return;
+
+        document.getElementById('loading').classList.remove('hidden');
+
+        try {
+            const payload = {
+                created_at: new Date().toISOString(),
+                user_id: state.user.userId,
+                user_name: state.user.displayName,
+                teacher_id: tid, // New Column
+                school_code: "N/A", // Not School Specific
+                start_date: date,
+                end_date: date, // Single Day for now
+                reason: reason || "-",
+                status: 'Pending',
+                type: state.selectedType, // Sick, Business, etc.
+                request_category: 'Teacher', // New Column
+                affected_sessions: JSON.stringify({ startTime: startT, endTime: endT }) // Store time here
+            };
+
+            const { error } = await state.supabase.from('requests_log').insert([payload]);
+            if(error) throw error;
+
+            // Notify Discord
+            await notifyDiscord(payload, teacherName, startT, endT);
+
+            alert("✅ Request Submitted Successfully!");
+            window.location.reload();
+
+        } catch(err) {
+            alert("Error: " + err.message);
+            document.getElementById('loading').classList.add('hidden');
+        }
+    };
+
+    async function notifyDiscord(data, teacherName, startT, endT) {
+        const embed = {
+            title: "🛌 Teacher Leave Request",
+            description: "A new leave request has been submitted.",
+            color: 16763904, // Yellow/Orange
+            fields: [
+                { name: "👤 Teacher", value: teacherName, inline: true },
+                { name: "📅 Date", value: data.start_date, inline: true },
+                { name: "⏰ Time", value: `${startT} - ${endT}`, inline: true },
+                { name: "📌 Type", value: data.type, inline: true },
+                { name: "📝 Reason", value: data.reason, inline: false },
+                { name: "👮 Reporter", value: data.user_name, inline: false }
+            ],
+            footer: { text: "Braincloud HR • v1.0" },
+            timestamp: new Date().toISOString()
+        };
+
+        await fetch(CONFIG.DISCORD_WEBHOOK, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                username: "Leave Bot",
+                avatar_url: "https://cdn-icons-png.flaticon.com/512/2966/2966486.png",
+                embeds: [embed]
+            })
+        });
+    }
+
+    // --- History ---
+    window.showHistory = () => {
+        document.getElementById('historyModal').classList.remove('hidden');
+        fetchHistory();
+    };
+
+    window.fetchHistory = async () => {
+        const list = document.getElementById('historyList');
+        list.innerHTML = '<div class="text-center text-gray-500 py-4">Loading...</div>';
+
+        const { data, error } = await state.supabase.from('requests_log')
+            .select('*')
+            .eq('user_id', state.user.userId) // My submissions
+            .eq('request_category', 'Teacher')
+            .order('created_at', { ascending: false })
+            .limit(20);
+
+        list.innerHTML = "";
+        
+        if(!data || data.length === 0) {
+            list.innerHTML = '<div class="text-center text-gray-400 py-10">No history found</div>';
+            return;
+        }
+
+        data.forEach(r => {
+            const tObj = state.teachers.find(t => String(t.id) === String(r.teacher_id));
+            const tName = tObj ? tObj.name : r.teacher_id;
+            const statusColor = r.status === 'Pending' ? 'text-yellow-600 bg-yellow-100' : (r.status === 'Approved' ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100');
+            
+            list.innerHTML += `
+               <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm text-sm">
+                   <div class="flex justify-between items-start mb-1">
+                       <span class="font-bold text-gray-800">${tName}</span>
+                       <span class="text-xs px-2 py-0.5 rounded font-bold ${statusColor}">${r.status}</span>
+                   </div>
+                   <div class="text-gray-500 text-xs flex items-center gap-2">
+                       <span>📅 ${r.start_date}</span>
+                       <span>📌 ${r.type}</span>
+                   </div>
+                   <div class="text-gray-400 text-[10px] mt-1 text-right">
+                       Submitted: ${new Date(r.created_at).toLocaleString('th-TH')}
+                   </div>
+               </div>
+            `;
+        });
+    };
+  </script>
+</body>
+</html>
