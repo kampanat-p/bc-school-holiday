@@ -240,13 +240,12 @@
 
         // 1. Check Existing Requests (Pending) in requests_log
         const { data: reqs } = await state.supabase.from('requests_log')
-            .select('user_name, created_at')
+            .select('user_name, created_at, type, affected_sessions, reason')
             .eq('teacher_id', tid)
             .eq('start_date', date)
             .neq('status', 'Rejected'); // Show for Pending or Approved
             
         // 2. Check Confirmed Unavailability (fact_teacher_unavailability)
-        // Note: This logic is simple date check. Could accept time overlap in future.
         const { data: unav } = await state.supabase.from('fact_teacher_unavailability')
             .select('*')
             .eq('teacher_id', tid)
@@ -256,18 +255,52 @@
 
         if(reqs && reqs.length > 0) {
             reqs.forEach(r => {
-                warnings.push(`• Request submitted by <b>${r.user_name}</b> (Pending/Appr).`);
+                let timeInfo = "(Whole Day)";
+                try {
+                    if (r.affected_sessions) {
+                        const parsed = JSON.parse(r.affected_sessions);
+                        if(parsed.startTime && parsed.endTime) {
+                            timeInfo = `(${parsed.startTime} - ${parsed.endTime})`;
+                        }
+                    }
+                } catch(e) {}
+                
+                const submitTime = new Date(r.created_at).toLocaleString('th-TH', { 
+                    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' 
+                });
+
+                warnings.push(`
+                    <div class="mb-2 pb-2 border-b border-yellow-200 last:border-0 last:mb-0 last:pb-0">
+                        <div class="font-bold text-yellow-900"><i class="fas fa-file-contract mr-1"></i> Pending Request (${r.type})</div>
+                        <div class="ml-4">
+                            <div>🕒 Time: <b>${timeInfo}</b></div>
+                            <div>👤 By: <b>${r.user_name}</b></div>
+                            <div class="text-[10px] text-yellow-700 opacity-80">Submitted on: ${submitTime}</div>
+                        </div>
+                    </div>
+                `);
             });
         }
         
         if(unav && unav.length > 0) {
             unav.forEach(u => {
-                warnings.push(`• Confirmed record: ${u.leave_type || 'Leave'} (${u.start_time}-${u.end_time}).`);
+                warnings.push(`
+                    <div class="mb-2 pb-2 border-b border-yellow-200 last:border-0 last:mb-0 last:pb-0">
+                        <div class="font-bold text-yellow-900"><i class="fas fa-check-circle mr-1"></i> Confirmed Record</div>
+                         <div class="ml-4">
+                            <div>📌 Type: ${u.leave_type || 'Leave'}</div>
+                            <div>🕒 Time: <b>${u.start_time || '?'} - ${u.end_time || '?'}</b></div>
+                            <div class="italic text-[10px]">"${u.reason || 'No reason'}"</div>
+                        </div>
+                    </div>
+                `);
             });
         }
 
         if(warnings.length > 0) {
-            msg.innerHTML = warnings.join("<br>");
+            // box title update
+            box.querySelector('h3').innerText = `Run into ${warnings.length} Existing Record(s)`;
+            msg.innerHTML = warnings.join("");
             box.classList.remove('hidden');
         }
     };
