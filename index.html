@@ -29,10 +29,23 @@
 </head>
 <body class="bg-gray-100 min-h-screen pb-20">
 
+  <!-- DIAGNOSTIC SCRIPT (Fail-Safe) -->
+  <script>
+    window.startTime = Date.now();
+    console.log("Basic JS Block started");
+    document.addEventListener("DOMContentLoaded", function() {
+        // If the main script hasn't taken over by now, shout about it.
+        const st = document.getElementById('status-text');
+        if(st && st.innerText.includes('Waiting')) {
+             st.innerHTML += "<br>[Diagnostic] DOM Loaded but Main Script didn't run.";
+        }
+    });
+  </script>
+
   <!-- Loading -->
   <div id="loading" class="loading-overlay">
     <div class="spinner"></div>
-    <p class="font-bold text-gray-700">System Loading (v2.1.6)...</p>
+    <p class="font-bold text-gray-700">System Loading (v2.1.7)...</p>
     <p id="status-text" class="text-sm text-gray-500 mt-2">Waiting for JS...</p>
   </div>
 
