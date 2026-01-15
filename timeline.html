@@ -191,9 +191,6 @@
       </div>
       
       <div class="left-group">
-        <button class="btn btn-zoom" onclick="zoom(-0.2)">➕</button>
-        <button class="btn btn-zoom" onclick="zoom(0.2)">➖</button>
-        <button class="btn" style="background:#6c757d;" onclick="resetZoom()">Reset</button>
         <button class="btn btn-log" onclick="showLogs()">📋 View Logs (<span id="logCount">0</span>)</button>
       </div>
     </div>
@@ -216,7 +213,7 @@
   <div id="mouse-tooltip">00:00</div>
 
   <div id="sim-controls">
-    <div id="version-display" style="position:fixed; bottom:5px; right:5px; opacity:0.6; font-size:10px; z-index:9999; color:#666; background:rgba(255,255,255,0.7); padding:2px 4px; border-radius:3px;">v10.10 (PC View + HScroll)</div>
+    <div id="version-display" style="position:fixed; bottom:5px; right:5px; opacity:0.6; font-size:10px; z-index:9999; color:#666; background:rgba(255,255,255,0.7); padding:2px 4px; border-radius:3px;">v10.11 (Touch Zoom Only)</div>
       <div class="sim-status">
           <span class="sim-status-title">🔮 Simulation Mode Active</span>
           <span class="sim-status-desc">Changes are temporary. Click items to simulate moves.</span>
@@ -602,16 +599,19 @@
 
       var minTime = selectedDate + 'T07:50:00'; 
       var maxTime = selectedDate + 'T17:10:00'; 
+      
+      // [TOUCH SUPPORT] Detect touch device for pinch-zoom
+      var isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
       var options = {
         start: selectedDate + 'T07:50:00',
         end: selectedDate + 'T17:10:00',
         min: minTime, max: maxTime,
         height: '100%', margin: { item: 0, axis: 10 }, stack: true,
-        // [MODIFIED] User requested horizontal scroll and PC-like view
-        zoomable: false, 
-        moveable: true,            // Allows drag-to-pan
-        horizontalScroll: true,    // Adds explicit scrollbar if needed
+        // [MODIFIED] Zoom allowed only on Touch Devices (Pinch), disabled on Desktop
+        zoomable: isTouch, 
+        moveable: true,            
+        horizontalScroll: true,    
         orientation: 'top', verticalScroll: true,
         timeAxis: { scale: 'minute', step: 10 },
         showMajorLabels: false,
@@ -1080,22 +1080,6 @@
         var now = new Date();
         timeline.setCustomTime(now, 'current-ruler');
         updateCustomTimeTitle('current-ruler', now);
-    }
-
-    function zoom(percentage) {
-        if (!timeline) return;
-        if (percentage < 0) {
-             timeline.zoomIn(Math.abs(percentage));
-        } else {
-             timeline.zoomOut(percentage);
-        }
-    }
-
-    function resetZoom() {
-       if (timeline) {
-           var date = document.getElementById('datePicker').value;
-           timeline.setWindow(date + 'T07:50:00', date + 'T17:10:00');
-       }
     }
 
     function showLogs() {
