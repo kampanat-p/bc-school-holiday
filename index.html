@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>แจ้งวันหยุด (Confirming Logic)</title>
+  <title>แจ้งวันหยุด (v3.0.0)</title>
   
   <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -17,105 +17,129 @@
     .loading-overlay {
       position: fixed; top: 0; left: 0; width: 100%; height: 100%;
       background: rgba(255,255,255,0.98); z-index: 9999;
-      display: flex; flex-direction: column; justify-content: flex-start; align-items: center; padding: 40px 20px; overflow-y: auto;
+      display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px;
     }
     .status-log {
-        font-family: monospace; font-size: 12px; color: #333; 
-        background: #f5f5f5; width: 100%; max-width: 400px;
-        padding: 10px; border-radius: 8px; margin-top: 20px;
-        border: 1px solid #ddd; min-height: 100px; white-space: pre-wrap;
+        font-family: monospace; font-size: 10px; color: #666; 
+        background: #f5f5f5; width: 90%; max-width: 400px;
+        padding: 5px; border-radius: 4px; margin-top: 10px;
+        border: 1px solid #ddd; max-height: 80px; overflow-y: auto; display: none; /* Hidden by default unless error */
     }
     .spinner {
       border: 4px solid #f3f3f3; border-top: 4px solid #16a34a; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 20px;
     }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    /* Card Interaction */
+    .session-card { transition: all 0.2s; }
+    .session-card.selected { border-color: #ef4444; background-color: #fef2f2; border-width: 2px; }
+    .session-card.selected .check-icon { display: block; }
   </style>
 </head>
-<body class="bg-gray-100 min-h-screen pb-20">
+<body class="bg-gray-100 min-h-screen pb-24">
 
-  <!-- Loading / Diagnostic Screen -->
+  <!-- Loading Screen -->
   <div id="loading" class="loading-overlay">
     <div class="spinner"></div>
-    <p class="font-bold text-gray-700">System Loading (v2.2.2)</p>
-    
-    <!-- This log box will show us EXACTLY where it stops -->
-    <div id="status-log" class="status-log">Waiting for Logger...</div>
-
-    <button onclick="window.location.reload()" class="mt-4 px-4 py-2 bg-gray-200 rounded text-xs">Reload Page</button>
+    <p class="font-bold text-gray-700">System Loading (v3.0.0)...</p>
+    <div id="status-log" class="status-log"></div>
   </div>
 
-  <!-- Main UI (Hidden initially) -->
+  <!-- Main UI -->
   <div id="main-container" class="max-w-md mx-auto bg-white min-h-screen shadow-xl relative hidden">
-    <!-- Header -->
-    <div class="bg-green-600 p-6 rounded-b-3xl text-white shadow-lg">
-      <h1 class="text-xl font-bold">แจ้งวันหยุด</h1>
-      <p id="userNameDisplay" class="text-xs mt-1">Guest</p>
+    
+    <!-- Profile Header -->
+    <div class="bg-green-600 p-6 rounded-b-3xl text-white shadow-lg flex justify-between items-center">
+      <div>
+        <h1 class="text-xl font-bold">แจ้งวันหยุด</h1>
+        <p class="text-green-100 text-xs">Braincloud Operations</p>
+      </div>
+      <div class="flex flex-col items-center">
+        <!-- Profile Pic -->
+        <img id="userPic" src="https://via.placeholder.com/40" class="w-12 h-12 rounded-full border-2 border-white shadow-md bg-gray-200 object-cover">
+        <p id="userNameDisplay" class="text-xs mt-1 font-semibold">Guest</p>
+      </div>
     </div>
 
     <!-- Form -->
     <form id="mainForm" class="p-5 space-y-6">
+      
       <!-- 1. School -->
       <div>
         <label class="block text-sm font-semibold text-gray-700 mb-2">🏫 โรงเรียน</label>
-        <select id="schoolSelect" class="w-full p-3 border border-gray-300 rounded-xl bg-gray-50" onchange="checkScheduleCondition()">
+        <select id="schoolSelect" class="w-full p-3 border border-gray-300 rounded-xl bg-gray-50 focus:ring-2 focus:ring-green-500" onchange="checkScheduleCondition()">
           <option value="" disabled selected>-- เลือกโรงเรียน --</option>
         </select>
       </div>
 
       <!-- 2. Date -->
-      <div class="bg-gray-50 p-4 rounded-xl border border-gray-200">
-        <label class="block text-sm font-semibold text-gray-700 mb-2">📅 วันที่เริ่มต้น</label>
-        <input type="date" id="startDate" class="w-full p-2 border border-gray-300 rounded-lg">
-        
-        <div class="mt-2 flex items-center">
-            <input type="checkbox" id="multiDayCheck" class="mr-2" onchange="toggleEndDate()">
-            <span class="text-xs">หยุดหลายวัน</span>
+      <div class="bg-gray-50 p-4 rounded-xl border border-gray-200 shadow-sm">
+        <div class="flex justify-between items-center mb-2">
+            <label class="block text-sm font-semibold text-gray-700">📅 วันที่</label>
+            <label class="flex items-center space-x-2 text-xs text-gray-500 cursor-pointer">
+                <input type="checkbox" id="multiDayCheck" class="rounded text-green-600" onchange="toggleEndDate()">
+                <span>หยุดหลายวัน?</span>
+            </label>
         </div>
-
-        <div id="endDateContainer" class="mt-2 hidden">
-             <label class="block text-sm font-semibold text-gray-700 mb-2">ถึงวันที่</label>
+        
+        <input type="date" id="startDate" class="w-full p-2 border border-gray-300 rounded-lg mb-2" onchange="checkScheduleCondition()">
+        
+        <div id="endDateContainer" class="hidden animate-fade-in">
+             <label class="block text-xs font-semibold text-gray-500 mb-1">ถึงวันที่</label>
              <input type="date" id="endDate" class="w-full p-2 border border-gray-300 rounded-lg">
         </div>
       </div>
 
-      <!-- 3. Schedule -->
+      <!-- 3. Schedule (Dynamic) -->
       <div id="scheduleSection" class="hidden">
-        <h3 class="font-bold text-gray-800 mb-2">ตารางเรียน</h3>
+        <div class="flex justify-between items-end mb-2">
+            <h3 class="font-bold text-gray-800">ตารางเรียน</h3>
+            <span class="text-xs text-gray-500">แตะเพื่อเลือกคาบที่งดสอน</span>
+        </div>
         <div id="scheduleList" class="space-y-2"></div>
+        <p id="scheduleMsg" class="text-center text-gray-400 text-sm italic mt-4 hidden">ไม่มีตารางเรียนในวันนี้</p>
       </div>
        
       <!-- 4. Reason -->
       <div>
-        <label class="block text-sm font-semibold text-gray-700 mb-2">สาเหตุ</label>
-        <textarea id="reason" rows="2" class="w-full p-3 border border-gray-300 rounded-xl"></textarea>
+        <label class="block text-sm font-semibold text-gray-700 mb-2">📝 สาเหตุ / หมายเหตุ</label>
+        <textarea id="reason" rows="3" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500" placeholder="เช่น ป่วย, ลากิจ, วันหยุดพิเศษ..."></textarea>
       </div>
 
-      <button type="button" onclick="submitData()" class="w-full bg-green-600 text-white font-bold py-4 rounded-xl shadow-lg">ยืนยัน</button>
+      <!-- Submit -->
+      <button type="button" onclick="submitData()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl shadow-lg transition-transform transform active:scale-95 flex justify-center items-center">
+        <i class="fas fa-paper-plane mr-2"></i> ยืนยันข้อมูล
+      </button>
+
     </form>
+    
+    <!-- Footer -->
+    <div class="absolute bottom-2 left-0 w-full text-center pb-4 opacity-50 hover:opacity-100 transition-opacity">
+        <p class="text-[10px] text-gray-400">Ver 3.0.0</p>
+        <button onclick="window.location.reload()" class="text-[10px] text-blue-400 underline mt-1">Force Refresh</button>
+    </div>
+
   </div>
 
-  <!-- SCRIPT 1: LOGGER (Must run first) -->
+  <!-- ####################################################### -->
+  <!-- 🛡️ ROBUST SCRIPT ARCHITECTURE (INLINED) -->
+  <!-- ####################################################### -->
   <script>
-    function log(msg) {
+    // 1. Logger & Error Trap
+    function log(msg, isError = false) {
         var el = document.getElementById('status-log');
         if(el) {
-            var time = new Date().toLocaleTimeString();
-            el.innerText = `[${time}] ${msg}\n` + el.innerText;
+            if(isError) el.style.display = 'block'; // Show log on error
+            el.innerText = `> ${msg}\n` + el.innerText;
         }
         console.log(msg);
     }
-    log("Logger initialized.");
     
-    // Global Error Trap
-    window.onerror = function(message, source, lineno, colno, error) {
-        log(`CRITICAL ERROR: ${message} at line ${lineno}`);
+    window.onerror = function(message, source, lineno) {
+        log(`CRITICAL: ${message} (Line ${lineno})`, true);
     };
-  </script>
 
-  <!-- SCRIPT 2: MAIN LOGIC -->
-  <script>
-    log("Parsing Main Script...");
-
+    // 2. Config & State
     const CONFIG = {
         LIFF_ID: "2008775079-PKwtDJOx",
         SUPABASE_URL: "https://cgznmxcecljfybcgujjb.supabase.co",
@@ -126,50 +150,50 @@
 
     let state = {
         supabase: null,
-        user: { userId: "U_GUEST", displayName: "Guest" },
-        sessions: new Set(),
+        user: { userId: "U_GUEST", displayName: "Guest", pictureUrl: "" },
+        sessions: new Set(), // Uploads session_ids of selected cards
         schools: {}
     };
 
+    // 3. Init Sequence
     async function init() {
-        log("Init started...");
+        log("Init v3.0.0...");
         
-        // 1. Check Deps
-        if(typeof supabase === 'undefined') {
-            log("FAIL: Supabase library not loaded.");
-            // Try to recover or continue?
-        } else {
-             /* @ts-ignore */
-             state.supabase = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
-             log("OK: Supabase Client ready.");
+        try {
+            // Check Libs
+            if(typeof supabase === 'undefined') throw new Error("Supabase Missing");
+            if(typeof liff === 'undefined') throw new Error("LIFF Missing");
+
+            /* @ts-ignore */
+            state.supabase = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+
+            // Parallel Load
+            await Promise.all([ loadSchools(), initLiff() ]);
+
+            // Done
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('main-container').classList.remove('hidden');
+            
+            // Set Today
+            const today = new Date().toISOString().split('T')[0];
+            const d = document.getElementById('startDate');
+            if(d && !d.value) d.value = today;
+
+        } catch(e) {
+            log("INIT FAIL: " + e.message, true);
         }
-
-        if(typeof liff === 'undefined') {
-            log("FAIL: LIFF library not loaded.");
-        } else {
-            log("OK: LIFF library detected.");
-        }
-
-        // 2. Load Schools
-        loadSchools();
-
-        // 3. Init LIFF
-        initLiff();
     }
 
     async function loadSchools() {
-        if(!state.supabase) return log("Skip DB: No client");
-        
         log("Fetching Schools...");
         const { data, error } = await state.supabase
             .from('dim_school')
             .select('school_id, school_code, school_name_th')
-            .neq('status', 'Inactive')
+            .eq('status', 'Active') // <--- FILTER: Active Only
             .order('school_code');
 
-        if(error) return log("DB Error: " + error.message);
+        if(error) throw error;
         
-        log(`DB: Got ${data.length} schools.`);
         const sel = document.getElementById('schoolSelect');
         sel.innerHTML = '<option value="" disabled selected>-- เลือกโรงเรียน --</option>';
         data.forEach(s => {
@@ -179,10 +203,6 @@
             opt.text = `${s.school_code} : ${s.school_name_th}`;
             sel.appendChild(opt);
         });
-        
-        // If successful, show UI
-        document.getElementById('loading').style.display = 'none';
-        document.getElementById('main-container').classList.remove('hidden');
     }
 
     async function initLiff() {
@@ -194,116 +214,201 @@
                 /* @ts-ignore */
                 const p = await liff.getProfile();
                 state.user = p;
-                log(`LIFF: Logged in as ${p.displayName}`);
                 document.getElementById('userNameDisplay').innerText = p.displayName;
+                if(p.pictureUrl) document.getElementById('userPic').src = p.pictureUrl; // <--- Profile Pic
             } else {
-                log("LIFF: Guest Mode");
                 /* @ts-ignore */
                 liff.login();
             }
         } catch(e) {
-            log("LIFF Error: " + e.message);
+             console.warn("LIFF local dev warning: " + e.message);
         }
     }
 
-    // --- Events ---
-    
+    // 4. Interaction Logic
     window.checkScheduleCondition = async () => {
         const code = document.getElementById('schoolSelect').value;
         const date = document.getElementById('startDate').value;
         const isMulti = document.getElementById('multiDayCheck').checked;
         
-        if (!isMulti && date) {
+        // Only show schedule if Single Day AND School Selected AND Date Selected
+        if (!isMulti && date && code) {
              document.getElementById('scheduleSection').classList.remove('hidden');
              loadSchedule(code, date);
         } else {
              document.getElementById('scheduleSection').classList.add('hidden');
+             state.sessions.clear();
         }
     }
     
     window.toggleEndDate = () => {
          const chk = document.getElementById('multiDayCheck').checked;
-         document.getElementById('endDateContainer').classList.toggle('hidden', !chk);
+         const endCont = document.getElementById('endDateContainer');
+         
+         endCont.classList.toggle('hidden', !chk);
+         if(!chk) document.getElementById('endDate').value = ""; // Reset
          checkScheduleCondition();
     }
 
-    window.submitData = async () => {
-        if(!state.supabase) return alert("System Error: No Database Connection");
-        
-        const data = {
-            schoolCode: document.getElementById('schoolSelect').value,
-            startDate: document.getElementById('startDate').value,
-            endDate: document.getElementById('multiDayCheck').checked ? document.getElementById('endDate').value : document.getElementById('startDate').value,
-            reason: document.getElementById('reason').value,
-            user_id: state.user.userId,
-            user_name: state.user.displayName
-        };
-        
-        if(!data.schoolCode || !data.startDate) return alert("กรุณากรอกข้อมูลให้ครบ");
-
-        log("Submitting...");
-        const { error } = await state.supabase.from('requests_log').insert([{
-            school_code: data.schoolCode,
-            start_date: data.startDate,
-            end_date: data.endDate,
-            reason: data.reason,
-            user_id: data.user_id,
-            user_name: data.user_name,
-            status: 'Pending',
-            created_at: new Date().toISOString()
-        }]);
-
-        if(error) {
-            log("Submit Error: " + error.message);
-            alert("Error: " + error.message);
-        } else {
-            alert("Success!");
-            notifyDiscord(data);
-             /* @ts-ignore */
-            liff.closeWindow();
-        }
-    }
-    
     async function loadSchedule(code, date) {
-        const container = document.getElementById('scheduleList');
-        container.innerHTML = "Loading...";
-        
+        const list = document.getElementById('scheduleList');
+        const msg = document.getElementById('scheduleMsg');
+        list.innerHTML = `<div class="text-center py-4"><i class="fas fa-spinner fa-spin text-green-500"></i> Loading...</div>`;
+        msg.classList.add('hidden');
+        state.sessions.clear();
+
         const school = state.schools[code];
         if(!school) return;
 
+        // Fetch Classes
         const { data } = await state.supabase.from('fact_daily_session')
-           .select('*')
+           .select('session_id, class_name, start_time, end_time, status, actual_teacher_id')
            .eq('school_id', school.school_id)
            .eq('date', date)
            .order('start_time');
            
-        container.innerHTML = "";
+        list.innerHTML = "";
+        
         if(!data || data.length === 0) {
-            container.innerHTML = "<div class='text-gray-400'>ไม่มีตารางเรียน</div>";
+            msg.classList.remove('hidden');
             return;
         }
-        
+
         data.forEach(s => {
-            const div = document.createElement('div');
-            div.className = "p-2 border rounded bg-gray-50 text-sm";
-            div.innerText = `${s.start_time.slice(0,5)}-${s.end_time.slice(0,5)} : ${s.class_name}`;
-            container.appendChild(div);
+            const isCancelled = s.status && s.status.toLowerCase().includes('cancel');
+            
+            const card = document.createElement('div');
+            // Tailwind Card Styling
+            card.className = `session-card border border-gray-200 rounded-lg p-3 bg-white flex justify-between items-center cursor-pointer mb-2 hover:shadow-md ${isCancelled ? 'opacity-50 pointer-events-none bg-gray-100' : ''}`;
+            
+            // Content
+            card.innerHTML = `
+                <div>
+                   <div class="font-bold text-gray-800">${s.class_name}</div>
+                   <div class="text-xs text-gray-500">
+                      <i class="far fa-clock mr-1"></i>${s.start_time.slice(0,5)} - ${s.end_time.slice(0,5)}
+                      <span class="mx-1">|</span>
+                      <i class="far fa-user mr-1"></i>${s.actual_teacher_id || 'TBA'}
+                   </div>
+                </div>
+                <!-- Check Icon (Hidden by default) -->
+                <div class="check-icon hidden text-red-500">
+                    <i class="fas fa-check-circle fa-lg"></i>
+                </div>
+            `;
+            
+            // Interaction
+            if(!isCancelled) {
+                card.onclick = () => {
+                    if(state.sessions.has(s.session_id)) {
+                        state.sessions.delete(s.session_id);
+                        card.classList.remove('selected');
+                    } else {
+                        state.sessions.add(s.session_id);
+                        card.classList.add('selected');
+                    }
+                };
+            }
+            
+            list.appendChild(card);
         });
     }
 
+    // 5. Submission
+    window.submitData = async () => {
+        if(!state.supabase) return alert("Error: Database not ready.");
+        
+        const schoolCode = document.getElementById('schoolSelect').value;
+        const startDate = document.getElementById('startDate').value;
+        const isMulti = document.getElementById('multiDayCheck').checked;
+        const endDate = isMulti ? document.getElementById('endDate').value : startDate;
+        const reason = document.getElementById('reason').value;
+        
+        if(!schoolCode || !startDate) return alert("กรุณาเลือกโรงเรียนและวันที่");
+        if(isMulti && !endDate) return alert("กรุณาระบุวันที่สิ้นสุด");
+        
+        // Confirmation
+        const sessionCount = state.sessions.size;
+        let confirmText = `ยืนยันการส่งข้อมูล?\n\nโรงเรียน: ${schoolCode}\nวันที่: ${startDate} ${isMulti ? 'ถึง ' + endDate : ''}\nเหตุผล: ${reason}`;
+        
+        if(sessionCount > 0) {
+            confirmText += `\n\n⚠️ คุณเลือกงดสอน ${sessionCount} คาบ`;
+        } else if(!isMulti) {
+            confirmText += `\n\n📌 (ไม่เลือกคาบ = หยุดทั้งวัน)`;
+        }
+
+        if(!confirm(confirmText)) return;
+
+        // Show Loading
+        document.getElementById('loading').style.display = 'flex';
+        document.querySelector('#loading p').innerText = "Saving...";
+
+        const payload = {
+            school_code: schoolCode,
+            start_date: startDate,
+            end_date: endDate,
+            reason: reason,
+            user_id: state.user.userId,
+            user_name: state.user.displayName,
+            status: 'Pending',
+            created_at: new Date().toISOString(),
+            type: sessionCount > 0 ? 'Partial' : 'Whole Day',
+            affected_sessions: sessionCount > 0 ? JSON.stringify(Array.from(state.sessions)) : null
+        };
+        
+        try {
+            // DB Insert
+            const { error } = await state.supabase.from('requests_log').insert([payload]);
+            if(error) throw error;
+            
+            // Notification
+            await notifyDiscord(payload);
+            
+            alert("บันทึกสำเร็จ!");
+            /* @ts-ignore */
+            liff.closeWindow();
+
+        } catch(err) {
+            alert("Error: " + err.message);
+            document.getElementById('loading').style.display = 'none';
+        }
+    }
+
     async function notifyDiscord(data) {
+        // Beautified Discord Embed
+        const embed = {
+            title: "📢 Holiday Request (แจ้งวันหยุด)",
+            description: "New request received from LIFF App.",
+            color: data.type === 'Whole Day' ? 15548997 : 3447003, // Red for Whole Day, Blue for Partial
+            fields: [
+                { name: "👤 User", value: data.user_name, inline: true },
+                { name: "🏫 School", value: data.school_code, inline: true },
+                { name: "📅 Date", value: `${data.start_date} ${data.start_date !== data.end_date ? '➡ ' + data.end_date : ''}`, inline: false },
+                { name: "📝 Reason", value: data.reason || "-", inline: false }
+            ],
+            footer: { text: "Braincloud Operations • v3.0.0", icon_url: "https://cdn-icons-png.flaticon.com/512/2092/2092663.png" },
+            timestamp: new Date().toISOString()
+        };
+
+        if(data.type === 'Partial') {
+             const count = JSON.parse(data.affected_sessions).length;
+             embed.fields.push({ name: "🚫 Cancelled Sessions", value: `${count} Class(es) Selected`, inline: true });
+        } else {
+             embed.fields.push({ name: "🚫 Type", value: "Whole Day (All Classes)", inline: true });
+        }
+
         await fetch(CONFIG.DISCORD_URL, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 username: "Holiday Bot",
-                content: `📝 **New Request**\nUser: ${data.user_name}\nSchool: ${data.schoolCode}\nDate: ${data.startDate} -> ${data.endDate}\nReason: ${data.reason}`
+                avatar_url: "https://cdn-icons-png.flaticon.com/512/3135/3135715.png",
+                embeds: [embed]
             })
         });
     }
 
-    // Auto-Run
-    log("Script Block Parsed Successfully.");
+    // Run It
     init();
 
   </script>
