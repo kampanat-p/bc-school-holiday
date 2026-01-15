@@ -41,7 +41,7 @@
   <!-- Loading Screen -->
   <div id="loading" class="loading-overlay">
     <div class="spinner"></div>
-    <p class="font-bold text-gray-700">System Loading (v3.0.1)...</p>
+    <p class="font-bold text-gray-700">System Loading (v3.1.0)...</p>
     <div id="status-log" class="status-log"></div>
   </div>
 
@@ -115,7 +115,7 @@
     
     <!-- Footer -->
     <div class="absolute bottom-2 left-0 w-full text-center pb-4 opacity-50 hover:opacity-100 transition-opacity">
-        <p class="text-[10px] text-gray-400">Ver 3.0.1</p>
+        <p class="text-[10px] text-gray-400">Ver 3.1.0</p>
         <button onclick="window.location.reload()" class="text-[10px] text-blue-400 underline mt-1">Force Refresh</button>
     </div>
 
@@ -151,13 +151,14 @@
     let state = {
         supabase: null,
         user: { userId: "U_GUEST", displayName: "Guest", pictureUrl: "" },
-        sessions: new Set(), // Uploads session_ids of selected cards
-        schools: {}
+        sessions: new Map(), // Changed to Map to store full details: id -> { time, class, teacher, original_teacher, is_cover }
+        schools: {},
+        teachers: {} // New: user_id -> Full Name
     };
 
     // 3. Init Sequence
     async function init() {
-        log("Init v3.0.0...");
+        log("Init v3.1.0...");
         
         try {
             // Check Libs
@@ -167,8 +168,8 @@
             /* @ts-ignore */
             state.supabase = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
 
-            // Parallel Load
-            await Promise.all([ loadSchools(), initLiff() ]);
+            // Parallel Load (Schools + Teachers + LIFF)
+            await Promise.all([ loadSchools(), loadTeachers(), initLiff() ]);
 
             // Done
             document.getElementById('loading').style.display = 'none';
@@ -203,6 +204,25 @@
             opt.text = `${s.school_code} : ${s.school_name_th}`;
             sel.appendChild(opt);
         });
+    }
+
+    async function loadTeachers() {
+        log("Fetching Teachers...");
+        const { data, error } = await state.supabase
+            .from('dim_user')
+            .select('user_id, firstname_en, lastname_en');
+
+        if(error) {
+            console.warn("Teacher fetch failed", error);
+            return;
+        }
+        
+        data.forEach(u => {
+            const fname = u.firstname_en || "Unknown";
+            const lname = u.lastname_en || "";
+            state.teachers[u.user_id] = `${fname} ${lname}`.trim();
+        });
+        log(`Loaded ${data.length} teachers.`);
     }
 
     async function initLiff() {
@@ -262,7 +282,7 @@
 
         // Fetch Classes
         const { data } = await state.supabase.from('fact_daily_session')
-           .select('session_id, class_name, start_time, end_time, status, actual_teacher_id')
+           .select('session_id, class_name, start_time, end_time, status, actual_teacher_id, original_teacher_id')
            .eq('school_id', school.school_id)
            .eq('date', date)
            .order('start_time');
@@ -277,6 +297,16 @@
         data.forEach(s => {
             const isCancelled = s.status && s.status.toLowerCase().includes('cancel');
             
+            // Teacher Mapping
+            const actName = state.teachers[s.actual_teacher_id] || s.actual_teacher_id || "TBA";
+            const orgName = state.teachers[s.original_teacher_id] || s.original_teacher_id;
+            
+            // Cover Logic
+            const isCover = s.original_teacher_id && s.actual_teacher_id && (s.original_teacher_id != s.actual_teacher_id);
+            const teacherDisplay = isCover 
+                ? `<span class="text-orange-600 font-bold">${actName}</span> <span class="text-[10px] text-gray-400 block">(Cover for ${orgName})</span>`
+                : `<span class="text-gray-600">${actName}</span>`;
+
             const card = document.createElement('div');
             // Tailwind Card Styling
             card.className = `session-card border border-gray-200 rounded-lg p-3 bg-white flex justify-between items-center cursor-pointer mb-2 hover:shadow-md ${isCancelled ? 'opacity-50 pointer-events-none bg-gray-100' : ''}`;
@@ -285,10 +315,11 @@
             card.innerHTML = `
                 <div>
                    <div class="font-bold text-gray-800">${s.class_name}</div>
-                   <div class="text-xs text-gray-500">
+                   <div class="text-xs text-gray-500 mt-1">
                       <i class="far fa-clock mr-1"></i>${s.start_time.slice(0,5)} - ${s.end_time.slice(0,5)}
-                      <span class="mx-1">|</span>
-                      <i class="far fa-user mr-1"></i>${s.actual_teacher_id || 'TBA'}
+                   </div>
+                   <div class="text-xs mt-1">
+                      <i class="far fa-user mr-1 text-gray-400"></i>${teacherDisplay}
                    </div>
                 </div>
                 <!-- Check Icon (Hidden by default) -->
@@ -304,7 +335,15 @@
                         state.sessions.delete(s.session_id);
                         card.classList.remove('selected');
                     } else {
-                        state.sessions.add(s.session_id);
+                        // Store full details for Discord
+                        state.sessions.set(s.session_id, {
+                            id: s.session_id,
+                            className: s.class_name,
+                            time: `${s.start_time.slice(0,5)} - ${s.end_time.slice(0,5)}`,
+                            teacher: actName,
+                            originalTeacher: isCover ? orgName : null,
+                            isCover: isCover
+                        });
                         card.classList.add('selected');
                     }
                 };
@@ -353,7 +392,7 @@
             status: 'Pending',
             created_at: new Date().toISOString(),
             type: sessionCount > 0 ? 'Partial' : 'Whole Day',
-            affected_sessions: sessionCount > 0 ? JSON.stringify(Array.from(state.sessions)) : null
+            affected_sessions: sessionCount > 0 ? JSON.stringify(Array.from(state.sessions.keys())) : null
         };
         
         try {
@@ -361,8 +400,8 @@
             const { error } = await state.supabase.from('requests_log').insert([payload]);
             if(error) throw error;
             
-            // Notification
-            await notifyDiscord(payload);
+            // Notification (Pass full session details)
+            await notifyDiscord(payload, Array.from(state.sessions.values()));
             
             alert("บันทึกสำเร็จ!");
             /* @ts-ignore */
@@ -374,27 +413,38 @@
         }
     }
 
-    async function notifyDiscord(data) {
+    async function notifyDiscord(data, sessionsDetail = []) {
         // Beautified Discord Embed
         const embed = {
-            title: "📢 Holiday Request (แจ้งวันหยุด)",
-            description: "New request received from LIFF App.",
-            color: data.type === 'Whole Day' ? 15548997 : 3447003, // Red for Whole Day, Blue for Partial
+            title: "📢 Holiday/Cancellation Request",
+            description: "A new cancellation request has been submitted via LIFF.",
+            color: data.type === 'Whole Day' ? 15548997 : 3447003, // Red vs Blue
             fields: [
-                { name: "👤 User", value: data.user_name, inline: true },
+                { name: "👤 Requester (LIFF)", value: data.user_name, inline: true },
                 { name: "🏫 School", value: data.school_code, inline: true },
-                { name: "📅 Date", value: `${data.start_date} ${data.start_date !== data.end_date ? '➡ ' + data.end_date : ''}`, inline: false },
+                { name: "📅 Date(s)", value: `${data.start_date} ${data.start_date !== data.end_date ? '➡ ' + data.end_date : ''}`, inline: false },
                 { name: "📝 Reason", value: data.reason || "-", inline: false }
             ],
-            footer: { text: "Braincloud Operations • v3.0.0", icon_url: "https://cdn-icons-png.flaticon.com/512/2092/2092663.png" },
+            footer: { text: "Braincloud Operations • v3.1.0", icon_url: "https://cdn-icons-png.flaticon.com/512/2092/2092663.png" },
             timestamp: new Date().toISOString()
         };
 
-        if(data.type === 'Partial') {
-             const count = JSON.parse(data.affected_sessions).length;
-             embed.fields.push({ name: "🚫 Cancelled Sessions", value: `${count} Class(es) Selected`, inline: true });
+        if(data.type === 'Partial' && sessionsDetail.length > 0) {
+             let details = "";
+             // Sort by Time
+             sessionsDetail.sort((a,b) => a.time.localeCompare(b.time));
+             
+             sessionsDetail.forEach(s => {
+                 const teacherInfo = s.isCover ? `Sub: **${s.teacher}** (For: ${s.originalTeacher})` : `Teacher: ${s.teacher}`;
+                 details += `⏰ **${s.time}** | 📚 ${s.className}\n└ ${teacherInfo}\n\n`;
+             });
+             
+             // Discord Field Limit (1024 chars). Truncate if needed.
+             if(details.length > 1000) details = details.substring(0, 1000) + "...(truncated)";
+             
+             embed.fields.push({ name: `🚫 Cancelled Sessions (${sessionsDetail.length})`, value: details, inline: false });
         } else {
-             embed.fields.push({ name: "🚫 Type", value: "Whole Day (All Classes)", inline: true });
+             embed.fields.push({ name: "🚫 Type", value: "Whole Day Cancellation (All Classes)", inline: true });
         }
 
         await fetch(CONFIG.DISCORD_URL, {
