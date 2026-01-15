@@ -123,162 +123,144 @@
 
   <script>
     // ***********************************************
-    // ⚙️ SETUP (แก้ตรงนี้)
+    // 🔍 IMMEDIATE DIAGNOSTICS
+    // ***********************************************
+    function logStatus(msg) {
+        console.log(msg);
+        const el = document.getElementById('status-text');
+        if(el) {
+          // Determine color based on content
+          let color = 'gray';
+          if(msg.includes('Error') || msg.includes('Err')) color = 'red';
+          if(msg.includes('Success') || msg.includes('Ready')) color = 'green';
+          
+          // Append or Set? Let's append if it's new info, ensuring visibility
+          if(el.innerText === '...') el.innerHTML = `<span style="color:${color}">${msg}</span>`;
+          else el.innerHTML += `<br><span style="color:${color}">${msg}</span>`;
+        }
+    }
+    // Prove script is running immediately
+    logStatus("JS Engine Started.");
+
+    // ***********************************************
+    // ⚙️ SETUP
     // ***********************************************
     const MY_LIFF_ID = "2008775079-PKwtDJOx"; 
     const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw0Z_hAvk8N27w4SUNiRiisKplikxiVvntTDbBTmllC4uzT3rHp2QMwkMvpAVKS4yQWyA/exec";
     
-    // Suapbase & Discord Configuration
     const SUPABASE_URL = "https://cgznmxcecljfybcgujjb.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ";
     const DISCORD_WEBHOOK_URL = "https://discordapp.com/api/webhooks/1461190566518853737/u7Fc4QlRExojVwUDAyMEiKSlTsVt6M5NzBW55oegDqLwDr1aSm4lmUNnq1xQBi_bmc_w";
-    const APP_VERSION = "v2.1.4 (Clean Build)"; // Version Number
+    const APP_VERSION = "v2.1.5 (Robust)"; 
 
-    // Global Error Handler (Moved to top)
+    // Global Error Handler 
     window.onerror = function(msg, url, line) {
-       const statusDiv = document.getElementById('status-text');
-       if(statusDiv) statusDiv.innerHTML += `<br><span style="color:red; font-size:10px;">Err: ${msg} (L${line})</span>`;
+       logStatus(`Global Err: ${msg} (Line ${line})`);
        return false; 
     };
 
-    function logStatus(msg) {
-        console.log(msg);
-        const el = document.getElementById('status-text');
-        if(el) el.innerHTML = msg;
-    }
-
-    // ***********************************************
-    // 🛡️ SAFE INITIALIZATION
-    // ***********************************************
-    let supabase = null;
-    
-    // Attempt to init Supabase immediately but safely
-    if (typeof window.supabase !== 'undefined') {
-        try {
-            supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-        } catch(e) { console.error("Supabase Init Error", e); }
-    }
-
     let userProfile = { userId: "U_GUEST", displayName: "Guest" };
     let selectedSessions = new Set();
-    let schoolsMap = {}; // Cache school data
+    let schoolsMap = {}; 
+    let supabase = null;
 
-    // --- Bootstrapper ---
-    document.addEventListener('DOMContentLoaded', () => {
-        logStatus("DOM Loaded. Initializing...");
-        initApp();
-    });
-
-    // Fallback if DOMContentLoaded already fired or missed
-    if (document.readyState === 'interactive' || document.readyState === 'complete') {
-        logStatus("ReadyState Interactive. Initializing...");
-        initApp();
-    }
+    // ***********************************************
+    // 🚀 BOOTSTRAP
+    // ***********************************************
+    document.addEventListener('DOMContentLoaded', initApp);
+    // Backup trigger
+    window.onload = () => { if(!window.appInitialized) initApp(); };
 
     async function initApp() {
-        // Prevent double init
         if (window.appInitialized) return;
         window.appInitialized = true;
+        
+        logStatus("InitApp: Starting...");
 
-      // Show Version
-      const vDiv = document.createElement('div');
-      vDiv.style = "position:absolute; bottom:5px; right:5px; font-size:10px; color:#aaa; z-index:99999;";
-      vDiv.innerText = APP_VERSION;
-      document.body.appendChild(vDiv);
-      
-      logStatus("System starting...");
-
-      // Safety Timeout
-      setTimeout(() => {
-        const loader = document.getElementById('loading');
-        if (loader && loader.style.display !== 'none') {
-             logStatus("<span style='color:orange'>Timeout: Force allow access</span>");
-             setTimeout(() => {
-                loader.style.display = 'none';
-                document.getElementById('main-container').classList.remove('hidden');
-             }, 1000);
+        // 1. Init Supabase
+        if (typeof window.supabase !== 'undefined') {
+            try {
+                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+                logStatus("Supabase: Client Created.");
+            } catch(e) { logStatus("Supabase Init Fail: " + e.message); }
+        } else {
+            logStatus("CRITICAL: Supabase SDK Missing.");
         }
-      }, 5000);
 
-      // Check Critical Dependencies
-      if (!supabase) {
-           // Try lazy init
-           if (typeof window.supabase !== 'undefined') {
-               supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-           } else {
-               logStatus("<span style='color:red'>Critical: Supabase SDK Not Found.</span>");
-               return; 
-           }
-      }
+        // 2. Load Data (Parallel)
+        try {
+            logStatus("Fetching Data...");
+            
+            // --- Task A: Schools ---
+            const schoolTask = fetchSchools();
 
-      try {
-          // Parallel Execution to prevent one blocking the other
-          logStatus("Loading Data & Login...");
-          
-          const schoolPromise = fetchSchoolsSupabase();
-          
-          const liffPromise = (async () => {
-              try {
-                await liff.init({ liffId: MY_LIFF_ID });
-                if (liff.isLoggedIn()) {
-                  const profile = await liff.getProfile();
-                  userProfile = profile;
-                  document.getElementById('userNameDisplay').innerText = profile.displayName;
-                  document.getElementById('userPic').src = profile.pictureUrl;
-                } else {
-                  liff.login(); 
-                }
-              } catch (err) {
-                console.error("LIFF Error", err);
-                logStatus("LIFF Failed (Guest Mode) " + err.message);
-              }
-          })();
+            // --- Task B: LIFF ---
+            const liffTask = (async () => {
+                 try {
+                     logStatus("LIFF: Init...");
+                     await liff.init({ liffId: MY_LIFF_ID });
+                     if (liff.isLoggedIn()) {
+                         logStatus("LIFF: Logged In.");
+                         const profile = await liff.getProfile();
+                         userProfile = profile;
+                         try {
+                           document.getElementById('userNameDisplay').innerText = profile.displayName;
+                           document.getElementById('userPic').src = profile.pictureUrl;
+                         } catch(domErr) { console.error(domErr); }
+                     } else {
+                         logStatus("LIFF: Guest (Not Logged In)");
+                         liff.login(); // This might redirect
+                     }
+                 } catch (liffErr) {
+                     logStatus("LIFF Error: " + liffErr.message);
+                 }
+            })();
 
-          await Promise.allSettled([schoolPromise, liffPromise]);
-          
-          logStatus("Ready.");
-          // Show App
-          document.getElementById('loading').style.display = 'none';
-          document.getElementById('main-container').classList.remove('hidden');
-      
-      } catch (fatalErr) {
-          logStatus("Fatal Error: " + fatalErr.message);
-      }
-    };
+            await Promise.allSettled([schoolTask, liffTask]);
+            
+            logStatus("Boot Complete. Opening UI.");
+            setTimeout(() => {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('main-container').classList.remove('hidden');
+            }, 500);
 
-    // --- API Calls (Refactored to Supabase) ---
-    async function fetchSchoolsSupabase() {
-      const statusText = document.getElementById('status-text');
-      statusText.innerText = "กำลังดึงรายชื่อโรงเรียน (SB)...";
-      
-      try {
+        } catch (fatal) {
+            logStatus("Fatal Boot Error: " + fatal.message);
+        }
+    }
+
+    async function fetchSchools() {
+        if(!supabase) { logStatus("Skip DB (No Client)"); return; }
+        
         const { data, error } = await supabase
           .from('dim_school')
           .select('school_id, school_code, school_name_th, school_name_en')
-          .neq('status', 'Inactive') 
+          .neq('status', 'Inactive')
           .order('school_code');
 
-        if (error) throw error;
+        if (error) {
+            logStatus("DB Error: " + error.message);
+            throw error;
+        }
 
+        logStatus(`DB: Loaded ${data.length} schools.`);
         const select = document.getElementById('schoolSelect');
         select.innerHTML = '<option value="" disabled selected>-- เลือกโรงเรียน --</option>';
         
         data.forEach(s => {
-           // We use school_code as value to maintain compatibility with existing logic/backend
-           s.school_name = s.school_name_th; // Map for legacy compatibility
+           s.school_name = s.school_name_th; 
            schoolsMap[s.school_code] = s;
-           
            const option = document.createElement('option');
            option.value = s.school_code;
            option.text = `${s.school_code} : ${s.school_name_th}`;
            select.appendChild(option);
         });
-
-      } catch (err) {
-        console.error(err);
-        alert("โหลดโรงเรียนไม่ได้ (Supabase): " + err.message);
-      }
     }
+
+    // ***********************************************
+    // 📉 LOGIC & EVENTS
+    // ***********************************************
+
 
     // Deprecated for usage, replaced by fetchSchoolsSupabase but kept wrapper name if needed
     function fetchSchools() { fetchSchoolsSupabase(); }
