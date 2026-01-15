@@ -162,6 +162,9 @@
       <button onclick="switchTab('schedule')" id="tab-schedule" class="flex-1 py-3 text-sm text-center tab-active">
         ตารางสอนวันนี้
       </button>
+      <button onclick="switchTab('group')" id="tab-group" class="flex-1 py-3 text-sm text-center tab-inactive">
+        สรุปตามกลุ่ม
+      </button>
       <button onclick="switchTab('cancel')" id="tab-cancel" class="flex-1 py-3 text-sm text-center tab-inactive">
         การแจ้งยกเลิก
       </button>
@@ -181,6 +184,11 @@
         </select>
       </div>
       <div id="scheduleList" class="space-y-2"></div>
+    </div>
+    
+    <!-- View: Group (New) -->
+    <div id="view-group" class="p-4 hidden">
+        <div id="groupList" class="space-y-3"></div>
     </div>
 
     <!-- View: Cancel -->
@@ -512,19 +520,65 @@
 
     // --- Filter & Render Logic (Existing UI Cleaned) ---
     function switchTab(tab) {
-      document.getElementById('view-schedule').classList.add('hidden');
-      document.getElementById('view-cancel').classList.add('hidden');
-      document.getElementById('tab-schedule').className = "flex-1 py-3 text-sm text-center tab-inactive text-gray-400";
-      document.getElementById('tab-cancel').className = "flex-1 py-3 text-sm text-center tab-inactive text-gray-400";
+      ['schedule', 'group', 'cancel'].forEach(t => {
+          document.getElementById('view-' + t).classList.add('hidden');
+          document.getElementById('tab-' + t).className = "flex-1 py-3 text-sm text-center tab-inactive text-gray-400";
+      });
 
       document.getElementById('view-' + tab).classList.remove('hidden');
       document.getElementById('tab-' + tab).className = "flex-1 py-3 text-sm text-center tab-active border-b-2 border-green-600 text-green-700 font-bold";
       
-      // Reset special filter when switching text
-      if (tab === 'schedule') {
-          // If manually switched, reset unless a mode is set
-          // We keep current mode
+      if (tab === 'group') {
+          renderGroupSummary();
       }
+    }
+
+    function renderGroupSummary() {
+        const list = document.getElementById('groupList');
+        list.innerHTML = "";
+        
+        // Group Logic
+        const groups = {};
+        rawData.sessions.forEach(s => {
+            if(!groups[s.group]) groups[s.group] = { total: 0, schools: new Set() };
+            groups[s.group].total++;
+            groups[s.group].schools.add(s.school);
+        });
+        
+        // Render
+        const styleMap = {
+            "Thesaban": { bg: "#F8E1EC", text: "#880E4F" },
+            "OBEC 3": { bg: "#FAE3D9", text: "#BF360C" },
+            "Private School": { bg: "#E8E1F5", text: "#4527A0" },
+            "OBEC South": { bg: "#FFF9C4", text: "#795548" },
+            "Other": { bg: "#F1F5F9", text: "#475569" }
+        };
+
+        const keys = Object.keys(groups).sort();
+        if(keys.length === 0) {
+            list.innerHTML = "<div class='text-center text-gray-400 py-10'>No data</div>";
+            return;
+        }
+
+        keys.forEach(k => {
+            const data = groups[k];
+            const st = styleMap[k] || styleMap["Other"];
+            
+            list.innerHTML += `
+               <div class="p-4 rounded-lg shadow-sm border border-gray-100 flex justify-between items-center" style="background-color:${st.bg}">
+                  <div>
+                      <div class="font-bold text-lg" style="color:${st.text}">${k}</div>
+                      <div class="text-xs opacity-70 mt-1" style="color:${st.text}">
+                        ${data.schools.size} Schools Active
+                      </div>
+                  </div>
+                  <div class="text-3xl font-bold" style="color:${st.text}">
+                      ${data.total}
+                      <span class="text-xs font-normal block text-right opacity-60">Classes</span>
+                  </div>
+               </div>
+            `;
+        });
     }
 
     function setFilterMode(mode) {
@@ -602,11 +656,11 @@
         // --- School Group Style ---
         const getStyle = (grp) => {
             const map = {
-                "Thesaban": { bg: "#FDB2D7", border: "#F885BE", text: "#880E4F" },
-                "OBEC3": { bg: "#FDA07D", border: "#FB8C66", text: "#BF360C" },
-                "Private": { bg: "#C7B5E9", border: "#B39DDB", text: "#4527A0" },
-                "OBEC South": { bg: "#FFDF7F", border: "#FFCF3F", text: "#795548" },
-                "Other": { bg: "#E2E8F0", border: "#CBD5E1", text: "#475569" }
+                "Thesaban": { bg: "#F8E1EC", border: "#FDB2D7", text: "#880E4F" }, // Lighter Pink
+                "OBEC 3": { bg: "#FAE3D9", border: "#FDA07D", text: "#BF360C" }, // Lighter Orange
+                "Private School": { bg: "#E8E1F5", border: "#D1C4E9", text: "#4527A0" }, // Lighter Purple
+                "OBEC South": { bg: "#FFF9C4", border: "#FFDF7F", text: "#795548" }, // Lighter Yellow
+                "Other": { bg: "#F1F5F9", border: "#CBD5E1", text: "#475569" }
             };
             return map[grp] || map["Other"];
         };

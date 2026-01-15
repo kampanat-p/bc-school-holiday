@@ -208,13 +208,13 @@
 
     function getSchoolStyle(group) {
         const map = {
-            "Thesaban": { bg: "#FDB2D7", border: "#F885BE", text: "#880E4F" },
-            "OBEC3": { bg: "#FDA07D", border: "#FB8C66", text: "#BF360C" },
-            "Private": { bg: "#C7B5E9", border: "#B39DDB", text: "#4527A0" },
-            "OBEC South": { bg: "#FFDF7F", border: "#FFCF3F", text: "#795548" }
+            "Thesaban": { bg: "#F8E1EC", border: "#FDB2D7", text: "#880E4F" }, // Lighter Pink
+            "OBEC 3": { bg: "#FAE3D9", border: "#FDA07D", text: "#BF360C" }, // Lighter Orange
+            "Private School": { bg: "#E8E1F5", border: "#D1C4E9", text: "#4527A0" }, // Lighter Purple
+            "OBEC South": { bg: "#FFF9C4", border: "#FFDF7F", text: "#795548" } // Lighter Yellow
         };
         // Default "Other"
-        return map[group] || { bg: "#E2E8F0", border: "#CBD5E1", text: "#475569" };
+        return map[group] || { bg: "#F1F5F9", border: "#CBD5E1", text: "#475569" };
     }
 
     async function loadTeachers() {
