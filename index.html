@@ -32,7 +32,7 @@
   <!-- Loading -->
   <div id="loading" class="loading-overlay">
     <div class="spinner"></div>
-    <p class="font-bold text-gray-700">System Loading (v2.1.5)...</p>
+    <p class="font-bold text-gray-700">System Loading (v2.1.6)...</p>
     <p id="status-text" class="text-sm text-gray-500 mt-2">Waiting for JS...</p>
   </div>
 
@@ -260,11 +260,7 @@
     // ***********************************************
     // 📉 LOGIC & EVENTS
     // ***********************************************
-
-
-    // Deprecated for usage, replaced by fetchSchoolsSupabase but kept wrapper name if needed
-    function fetchSchools() { fetchSchoolsSupabase(); }
-
+    
     async function fetchSchedule(code, date) {
       document.getElementById('loadingSchedule').classList.remove('hidden');
       document.getElementById('scheduleList').innerHTML = "";
