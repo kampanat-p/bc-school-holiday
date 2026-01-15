@@ -387,7 +387,8 @@
                 teacherType: actT.type,
                 coordinator: sc.coordinator,
                 status: status,
-                originalTeacher: orgT.name 
+                originalTeacher: orgT.name,
+                group: sc.group // <--- Added Group
             };
             dashSessions.push(item);
             
@@ -598,51 +599,68 @@
         const isCover = s.status === 'Cover';
         const isCancel = s.status.includes('Cancel');
         
-        // --- Calculate Live Status ---
+        // --- School Group Style ---
+        const getStyle = (grp) => {
+            const map = {
+                "Thesaban": { bg: "#FDB2D7", border: "#F885BE", text: "#880E4F" },
+                "OBEC3": { bg: "#FDA07D", border: "#FB8C66", text: "#BF360C" },
+                "Private": { bg: "#C7B5E9", border: "#B39DDB", text: "#4527A0" },
+                "OBEC South": { bg: "#FFDF7F", border: "#FFCF3F", text: "#795548" },
+                "Other": { bg: "#E2E8F0", border: "#CBD5E1", text: "#475569" }
+            };
+            return map[grp] || map["Other"];
+        };
+        const style = getStyle(s.group);
+
+        // --- Live Status ---
         let isLive = false;
         if (isToday && !isCancel) { 
-            // format: "08:30-09:20"
             const [t1, t2] = s.time.split('-');
             if (t1 && t2) {
                 const [h1, m1] = t1.split(':').map(Number);
                 const [h2, m2] = t2.split(':').map(Number);
                 const startMins = h1 * 60 + m1;
                 const endMins = h2 * 60 + m2;
-                
-                if (currentTotalMins >= startMins && currentTotalMins < endMins) {
-                    isLive = true;
-                }
+                if (currentTotalMins >= startMins && currentTotalMins < endMins) isLive = true;
             }
         }
 
-        let statusBadge = "";
-        if(isCover) statusBadge = `<span class="bg-yellow-100 text-yellow-800 text-[10px] px-1 rounded ml-1">Sub</span>`;
-        if(isCancel) statusBadge = `<span class="bg-red-100 text-red-800 text-[10px] px-1 rounded ml-1">Cancel</span>`;
+        // --- Card Styling ---
+        let cardCss = `background-color: ${style.bg}; border: 1px solid ${style.border};`;
+        let titleColor = style.text;
+        
+        if (isCancel) {
+            cardCss = "background: white; border: 2px dashed #d32f2f; opacity: 0.6;";
+            titleColor = "#d32f2f";
+        } else if (isCover) {
+            // Keep bg but add top border
+            cardCss += " border-top: 4px solid #00E676;";
+        }
 
         const html = `
-          <div class="card bg-white p-3 rounded-lg shadow-sm border border-gray-100 ${isCancel ? 'opacity-60 bg-gray-50' : ''} ${isLive ? 'card-live' : ''}">
+          <div class="card p-3 rounded-lg shadow-sm mb-2 ${isLive ? 'card-live' : ''}" style="${cardCss}">
             <div class="flex justify-between items-start">
               <div>
                 <div class="flex items-center">
-                  <span class="font-bold text-gray-800">${s.school}</span>
-                  <span class="text-xs bg-gray-100 text-gray-500 px-1 rounded ml-2">${s.class}</span>
-                  ${statusBadge}
+                  <span class="font-bold text-lg" style="color:${titleColor}">${s.school}</span>
+                  <span class="text-xs bg-white/50 text-gray-800 px-1 rounded ml-2 border border-black/10">${s.class}</span>
                 </div>
-                <div class="text-xs text-gray-500 mt-1 flex items-center">
-                    <span>🕒 ${s.time}</span>
-                    ${isLive ? '<span class="badge-live">LIVE</span>' : ''}
+                <div class="text-xs text-gray-800 mt-1 flex items-center">
+                    <span class="opacity-80">🕒 ${s.time}</span>
+                    ${isLive ? '<span class="badge-live shadow-sm">LIVE</span>' : ''}
                 </div>
-                <div class="text-xs text-gray-700 mt-1">
+                <div class="text-xs text-gray-900 mt-1">
                    <div class="flex items-center">
-                     <span>👤 ${s.teacher}</span>
-                     <span class="ml-1 text-[10px] px-1 rounded border ${s.teacherType === 'Full-time' ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-orange-50 text-orange-600 border-orange-200'}">
+                     <span class="font-medium">👤 ${s.teacher}</span>
+                     <!-- Teacher Type Badge -->
+                     <span class="ml-1 text-[9px] px-1 rounded border bg-white/60 border-black/10 text-gray-600">
                        ${s.teacherType === 'Full-time' ? 'FT' : 'PT'}
                      </span>
                    </div>
-                   ${isCover ? `<div class="text-[10px] text-orange-600 mt-0.5 font-semibold">↳ Cover for: ${s.originalTeacher || '?'}</div>` : ''}
+                   ${isCover ? `<div class="text-[11px] text-green-800 mt-1 font-bold bg-green-100/50 px-1 rounded inline-block"><i class="fas fa-sync-alt text-[10px]"></i> Cover for: ${s.originalTeacher || '?'}</div>` : ''}
                 </div>
               </div>
-              <div class="text-[10px] text-gray-400 text-right">
+              <div class="text-[10px] text-gray-600 text-right opacity-70">
                 ${s.coordinator}<br>(Coord)
               </div>
             </div>

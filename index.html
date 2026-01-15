@@ -189,7 +189,7 @@
         log("Fetching Schools...");
         const { data, error } = await state.supabase
             .from('dim_school')
-            .select('school_id, school_code, school_name_th')
+            .select('school_id, school_code, school_name_th, school_group')
             .eq('status', 'active') // <--- FILTER: active (lowercase)
             .order('school_code');
 
@@ -198,12 +198,23 @@
         const sel = document.getElementById('schoolSelect');
         sel.innerHTML = '<option value="" disabled selected>-- เลือกโรงเรียน --</option>';
         data.forEach(s => {
-            state.schools[s.school_code] = s;
+            state.schools[s.school_code] = { ...s, group: s.school_group };
             const opt = document.createElement('option');
             opt.value = s.school_code;
             opt.text = `${s.school_code} : ${s.school_name_th}`;
             sel.appendChild(opt);
         });
+    }
+
+    function getSchoolStyle(group) {
+        const map = {
+            "Thesaban": { bg: "#FDB2D7", border: "#F885BE", text: "#880E4F" },
+            "OBEC3": { bg: "#FDA07D", border: "#FB8C66", text: "#BF360C" },
+            "Private": { bg: "#C7B5E9", border: "#B39DDB", text: "#4527A0" },
+            "OBEC South": { bg: "#FFDF7F", border: "#FFCF3F", text: "#795548" }
+        };
+        // Default "Other"
+        return map[group] || { bg: "#E2E8F0", border: "#CBD5E1", text: "#475569" };
     }
 
     async function loadTeachers() {
@@ -304,26 +315,48 @@
             // Cover Logic
             const isCover = s.original_teacher_id && s.actual_teacher_id && (s.original_teacher_id != s.actual_teacher_id);
             const teacherDisplay = isCover 
-                ? `<span class="text-orange-600 font-bold">${actName}</span> <span class="text-[10px] text-gray-400 block">(Cover for ${orgName})</span>`
-                : `<span class="text-gray-600">${actName}</span>`;
+                ? `<span class="font-bold" style="color:#d97706">${actName}</span> <span class="text-[10px] block opacity-75">(Cover: ${orgName})</span>`
+                : `<span>${actName}</span>`;
 
+            // Style Logic
+            const style = getSchoolStyle(school.group);
             const card = document.createElement('div');
-            // Tailwind Card Styling
-            card.className = `session-card border border-gray-200 rounded-lg p-3 bg-white flex justify-between items-center cursor-pointer mb-2 hover:shadow-md ${isCancelled ? 'opacity-50 pointer-events-none bg-gray-100' : ''}`;
             
+            // Default Classes
+            card.className = `session-card rounded-lg p-3 flex justify-between items-center cursor-pointer mb-2 hover:shadow-md transition-all border`;
+            
+            if (isCancelled) {
+                // Cancelled Style
+                card.style.cssText = `background: white; border: 2px dashed #d32f2f; color: #d32f2f; opacity: 0.6; pointer-events: none;`;
+            } else {
+                // Group Color Style
+                card.style.backgroundColor = style.bg;
+                card.style.borderColor = style.border;
+                card.style.color = "#333"; // Default text dark
+                
+                if (isCover) {
+                    card.style.borderTop = "4px solid #00E676"; // Green Top
+                } else {
+                    card.style.borderWidth = "1px"; // Normal
+                }
+            }
+
+            // Title Color from School Group
+            const titleColor = isCancelled ? "#d32f2f" : style.text;
+
             // Content
             card.innerHTML = `
                 <div>
-                   <div class="font-bold text-gray-800">${s.class_name}</div>
-                   <div class="text-xs text-gray-500 mt-1">
-                      <i class="far fa-clock mr-1"></i>${s.start_time.slice(0,5)} - ${s.end_time.slice(0,5)}
+                   <div class="font-bold text-lg" style="color:${titleColor}">${s.class_name}</div>
+                   <div class="text-xs mt-1 flex items-center gap-1 opacity-80">
+                      <i class="far fa-clock"></i> ${s.start_time.slice(0,5)} - ${s.end_time.slice(0,5)}
                    </div>
-                   <div class="text-xs mt-1">
-                      <i class="far fa-user mr-1 text-gray-400"></i>${teacherDisplay}
+                   <div class="text-sm mt-1 flex items-center gap-1">
+                      <i class="far fa-user opacity-50"></i> ${teacherDisplay}
                    </div>
                 </div>
                 <!-- Check Icon (Hidden by default) -->
-                <div class="check-icon hidden text-red-500">
+                <div class="check-icon hidden text-red-500 bg-white rounded-full p-1 shadow">
                     <i class="fas fa-check-circle fa-lg"></i>
                 </div>
             `;
