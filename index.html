@@ -41,7 +41,7 @@
   <!-- Loading Screen -->
   <div id="loading" class="loading-overlay">
     <div class="spinner"></div>
-    <p class="font-bold text-gray-700">System Loading (v3.0.0)...</p>
+    <p class="font-bold text-gray-700">System Loading (v3.0.1)...</p>
     <div id="status-log" class="status-log"></div>
   </div>
 
@@ -115,7 +115,7 @@
     
     <!-- Footer -->
     <div class="absolute bottom-2 left-0 w-full text-center pb-4 opacity-50 hover:opacity-100 transition-opacity">
-        <p class="text-[10px] text-gray-400">Ver 3.0.0</p>
+        <p class="text-[10px] text-gray-400">Ver 3.0.1</p>
         <button onclick="window.location.reload()" class="text-[10px] text-blue-400 underline mt-1">Force Refresh</button>
     </div>
 
@@ -189,7 +189,7 @@
         const { data, error } = await state.supabase
             .from('dim_school')
             .select('school_id, school_code, school_name_th')
-            .eq('status', 'Active') // <--- FILTER: Active Only
+            .eq('status', 'active') // <--- FILTER: active (lowercase)
             .order('school_code');
 
         if(error) throw error;
