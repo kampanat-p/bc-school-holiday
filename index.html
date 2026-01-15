@@ -163,7 +163,23 @@
     let selectedSessions = new Set();
     let schoolsMap = {}; // Cache school data
 
-    window.onload = async () => {
+    // --- Bootstrapper ---
+    document.addEventListener('DOMContentLoaded', () => {
+        logStatus("DOM Loaded. Initializing...");
+        initApp();
+    });
+
+    // Fallback if DOMContentLoaded already fired or missed
+    if (document.readyState === 'interactive' || document.readyState === 'complete') {
+        logStatus("ReadyState Interactive. Initializing...");
+        initApp();
+    }
+
+    async function initApp() {
+        // Prevent double init
+        if (window.appInitialized) return;
+        window.appInitialized = true;
+
       // Show Version
       const vDiv = document.createElement('div');
       vDiv.style = "position:absolute; bottom:5px; right:5px; font-size:10px; color:#aaa; z-index:99999;";
