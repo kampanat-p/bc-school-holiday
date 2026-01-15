@@ -132,7 +132,12 @@
     const SUPABASE_URL = "https://cgznmxcecljfybcgujjb.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ";
     const DISCORD_WEBHOOK_URL = "https://discordapp.com/api/webhooks/1461190566518853737/u7Fc4QlRExojVwUDAyMEiKSlTsVt6M5NzBW55oegDqLwDr1aSm4lmUNnq1xQBi_bmc_w";
-    
+    const APP_VERSION = "v2.1.1 (Supabase)"; // Version Number
+
+    // Safety: Check SDK
+    if (typeof window.supabase === 'undefined') {
+      alert("❌ Critical Error: Supabase SDK could not be loaded. Check your internet connection or AdBlocker.");
+    }
     const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     // ***********************************************
 
@@ -140,34 +145,66 @@
     let selectedSessions = new Set();
     let schoolsMap = {}; // Cache school data
 
-    window.onload = async () => {
-      // 1. Load Schools (From Supabase)
-      await fetchSchoolsSupabase();
-      
-      // 2. Set Date
-      const today = new Date().toISOString().split('T')[0];
-      document.getElementById('startDate').value = today;
-      document.getElementById('endDate').value = today;
+    // Global Error Handler
+    window.onerror = function(msg, url, line) {
+       document.getElementById('status-text').innerHTML = `<span style="color:red">Error: ${msg}</span>`;
+       // Don't alert immediately, let the UI show it
+       return false; 
+    };
 
-      // 3. Init LIFF
-      try {
-        await liff.init({ liffId: MY_LIFF_ID });
-        if (liff.isLoggedIn()) {
-          const profile = await liff.getProfile();
-          userProfile = profile;
-          document.getElementById('userNameDisplay').innerText = profile.displayName;
-          document.getElementById('userPic').src = profile.pictureUrl;
-        } else {
-          liff.login(); // Auto Redirect to Login
-        }
-      } catch (err) {
-        console.error("LIFF Error", err);
-        alert("LIFF Error: " + err.message);
-      }
+    window.onload = async () => {
+      // Show Version
+      const vDiv = document.createElement('div');
+      vDiv.style = "position:absolute; bottom:5px; right:5px; font-size:10px; color:#aaa; z-index:99999;";
+      vDiv.innerText = APP_VERSION;
+      document.body.appendChild(vDiv);
       
-      // Show App
-      document.getElementById('loading').style.display = 'none';
-      document.getElementById('main-container').style.display = 'block';
+      // Safety Timeout: Force show app if stuck for 8 seconds
+      setTimeout(() => {
+        const loader = document.getElementById('loading');
+        if (loader && loader.style.display !== 'none') {
+             console.warn("Force loading due to timeout");
+             loader.style.display = 'none';
+             document.getElementById('main-container').classList.remove('hidden');
+             // Show a toast or small error?
+        }
+      }, 8000);
+
+      try {
+          // 1. Load Schools (From Supabase)
+          await fetchSchoolsSupabase();
+          
+          // 2. Set Date
+          const today = new Date().toISOString().split('T')[0];
+          document.getElementById('startDate').value = today;
+          document.getElementById('endDate').value = today;
+
+          // 3. Init LIFF
+          try {
+            await liff.init({ liffId: MY_LIFF_ID });
+            if (liff.isLoggedIn()) {
+              const profile = await liff.getProfile();
+              userProfile = profile;
+              document.getElementById('userNameDisplay').innerText = profile.displayName;
+              document.getElementById('userPic').src = profile.pictureUrl;
+            } else {
+              liff.login(); // Auto Redirect to Login
+            }
+          } catch (err) {
+            console.error("LIFF Error", err);
+            // Don't block app usage if LIFF fails (allow testing on browser)
+            document.getElementById('status-text').innerText += " (LIFF Failed, Guest Mode)";
+          }
+          
+          // Show App
+          document.getElementById('loading').style.display = 'none';
+          document.getElementById('main-container').classList.remove('hidden');
+      
+      } catch (fatalErr) {
+          console.error("Fatal", fatalErr);
+          document.getElementById('status-text').innerText = "Fatal Error: " + fatalErr.message;
+          alert("ไม่สามารถเริ่มระบบได้: " + fatalErr.message);
+      }
     };
 
     // --- API Calls (Refactored to Supabase) ---
