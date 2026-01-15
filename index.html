@@ -132,25 +132,30 @@
     const SUPABASE_URL = "https://cgznmxcecljfybcgujjb.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ";
     const DISCORD_WEBHOOK_URL = "https://discordapp.com/api/webhooks/1461190566518853737/u7Fc4QlRExojVwUDAyMEiKSlTsVt6M5NzBW55oegDqLwDr1aSm4lmUNnq1xQBi_bmc_w";
-    const APP_VERSION = "v2.1.1 (Supabase)"; // Version Number
+    const APP_VERSION = "v2.1.2 (Fix Init)"; // Version Number
 
-    // Safety: Check SDK
-    if (typeof window.supabase === 'undefined') {
-      alert("❌ Critical Error: Supabase SDK could not be loaded. Check your internet connection or AdBlocker.");
-    }
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    // Global Error Handler (Moved to top)
+    window.onerror = function(msg, url, line) {
+       const statusDiv = document.getElementById('status-text');
+       if(statusDiv) statusDiv.innerHTML = `<span style="color:red; font-weight:bold;">Error: ${msg}</span>`;
+       return false; 
+    };
+
     // ***********************************************
+    // 🛡️ SAFE INITIALIZATION
+    // ***********************************************
+    let supabase = null;
+    
+    // Attempt to init Supabase immediately but safely
+    if (typeof window.supabase !== 'undefined') {
+        try {
+            supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        } catch(e) { console.error("Supabase Init Error", e); }
+    }
 
     let userProfile = { userId: "U_GUEST", displayName: "Guest" };
     let selectedSessions = new Set();
     let schoolsMap = {}; // Cache school data
-
-    // Global Error Handler
-    window.onerror = function(msg, url, line) {
-       document.getElementById('status-text').innerHTML = `<span style="color:red">Error: ${msg}</span>`;
-       // Don't alert immediately, let the UI show it
-       return false; 
-    };
 
     window.onload = async () => {
       // Show Version
@@ -166,9 +171,16 @@
              console.warn("Force loading due to timeout");
              loader.style.display = 'none';
              document.getElementById('main-container').classList.remove('hidden');
-             // Show a toast or small error?
+             document.getElementById('status-text').innerHTML += "<br><span style='color:orange'>Timeout: Forcing Display</span>";
         }
-      }, 8000);
+      }, 5000); // Reduced to 5s
+
+      // Check Critical Dependencies
+      if (!supabase) {
+           document.getElementById('status-text').innerHTML = "<span style='color:red'>Critical: Supabase SDK Failed to Load.</span>";
+           alert("ไม่สามารถติดต่อฐานข้อมูล (Supabase SDK Missing) กรุณา Refresh หรือตรวจสอบอินเทอร์เน็ต");
+           return; 
+      }
 
       try {
           // 1. Load Schools (From Supabase)
@@ -176,8 +188,10 @@
           
           // 2. Set Date
           const today = new Date().toISOString().split('T')[0];
-          document.getElementById('startDate').value = today;
-          document.getElementById('endDate').value = today;
+          try {
+             document.getElementById('startDate').value = today;
+             document.getElementById('endDate').value = today;
+          } catch(e) { console.warn("Date input error", e); }
 
           // 3. Init LIFF
           try {
@@ -255,15 +269,7 @@
 
         const { data, error } = await supabase
           .from('fact_daily_session')
-          .select(`
-            session_id,
-            class_name,
-            start_time,
-            end_time,
-            status,
-            actual_teacher_id
-            // Add other fields if needed, e.g. teacher names from relation
-          `)
+          .select('session_id, class_name, start_time, end_time, status, actual_teacher_id')
           .eq('school_id', school.school_id)
           .eq('date', date)
           .order('start_time');
