@@ -6,6 +6,7 @@
   <title>แจ้งวันหยุดโรงเรียน</title>
   
   <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   
@@ -126,14 +127,22 @@
     // ***********************************************
     const MY_LIFF_ID = "2008775079-PKwtDJOx"; 
     const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw0Z_hAvk8N27w4SUNiRiisKplikxiVvntTDbBTmllC4uzT3rHp2QMwkMvpAVKS4yQWyA/exec";
+    
+    // Suapbase & Discord Configuration
+    const SUPABASE_URL = "https://cgznmxcecljfybcgujjb.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ";
+    const DISCORD_WEBHOOK_URL = "https://discordapp.com/api/webhooks/1461190566518853737/u7Fc4QlRExojVwUDAyMEiKSlTsVt6M5NzBW55oegDqLwDr1aSm4lmUNnq1xQBi_bmc_w";
+    
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     // ***********************************************
 
     let userProfile = { userId: "U_GUEST", displayName: "Guest" };
     let selectedSessions = new Set();
+    let schoolsMap = {}; // Cache school data
 
     window.onload = async () => {
-      // 1. Load Schools
-      fetchSchools();
+      // 1. Load Schools (From Supabase)
+      await fetchSchoolsSupabase();
       
       // 2. Set Date
       const today = new Date().toISOString().split('T')[0];
@@ -161,47 +170,104 @@
       document.getElementById('main-container').style.display = 'block';
     };
 
-    // --- API Calls (ใช้ fetch แทน google.script.run) ---
-    function fetchSchools() {
+    // --- API Calls (Refactored to Supabase) ---
+    async function fetchSchoolsSupabase() {
       const statusText = document.getElementById('status-text');
-      statusText.innerText = "กำลังดึงรายชื่อโรงเรียน...";
+      statusText.innerText = "กำลังดึงรายชื่อโรงเรียน (SB)...";
       
-      fetch(GAS_API_URL + "?action=getSchools")
-        .then(response => response.json())
-        .then(schools => {
-           const select = document.getElementById('schoolSelect');
-           select.innerHTML = '<option value="" disabled selected>-- เลือกโรงเรียน --</option>';
-           schools.forEach(s => {
-             if(s.code !== "ERR") {
-               const option = document.createElement('option');
-               option.value = s.code;
-               option.text = `${s.code} : ${s.name}`;
-               select.appendChild(option);
-             }
-           });
-        })
-        .catch(err => alert("โหลดโรงเรียนไม่ได้: " + err));
+      try {
+        const { data, error } = await supabase
+          .from('dim_school')
+          .select('school_id, school_code, school_name')
+          .neq('status', 'Inactive') // Assuming there's a status column, or remove if not
+          .order('school_code');
+
+        if (error) throw error;
+
+        const select = document.getElementById('schoolSelect');
+        select.innerHTML = '<option value="" disabled selected>-- เลือกโรงเรียน --</option>';
+        
+        data.forEach(s => {
+           // We use school_code as value to maintain compatibility with existing logic/backend
+           // But we store the full object in a map for later use (e.g. school_id)
+           schoolsMap[s.school_code] = s;
+           
+           const option = document.createElement('option');
+           option.value = s.school_code;
+           option.text = `${s.school_code} : ${s.school_name}`;
+           select.appendChild(option);
+        });
+
+      } catch (err) {
+        console.error(err);
+        alert("โหลดโรงเรียนไม่ได้ (Supabase): " + err.message);
+      }
     }
 
-    function fetchSchedule(code, date) {
+    // Deprecated for usage, replaced by fetchSchoolsSupabase but kept wrapper name if needed
+    function fetchSchools() { fetchSchoolsSupabase(); }
+
+    async function fetchSchedule(code, date) {
       document.getElementById('loadingSchedule').classList.remove('hidden');
       document.getElementById('scheduleList').innerHTML = "";
       
-      fetch(`${GAS_API_URL}?action=getSchedule&code=${code}&date=${date}`)
-        .then(response => response.json())
-        .then(schedules => renderSchedule(schedules))
-        .catch(err => alert("โหลดตารางไม่ได้: " + err));
+      try {
+        // Find school_id from code
+        const school = schoolsMap[code];
+        if (!school) throw new Error("School ID not found for code: " + code);
+
+        const { data, error } = await supabase
+          .from('fact_daily_session')
+          .select(`
+            session_id,
+            class_name,
+            start_time,
+            end_time,
+            status,
+            actual_teacher_id
+            // Add other fields if needed, e.g. teacher names from relation
+          `)
+          .eq('school_id', school.school_id)
+          .eq('date', date)
+          .order('start_time');
+
+        if (error) throw error;
+
+        // Map to format expected by renderSchedule
+        // Note: We might be missing Teacher Names if we don't join. 
+        // For simplicity, we'll display ID or fetch teachers separately. 
+        // Or if 'fact_daily_session' has generic 'teacher_id', we use that.
+        // Let's assume basic fields for now.
+        
+        const schedules = data.map(s => ({
+            id: s.session_id,
+            className: s.class_name,
+            time: `${s.start_time.slice(0,5)} - ${s.end_time.slice(0,5)}`,
+            teacher: s.actual_teacher_id || "TBA", // Ideally join with dim_user or cache
+            status: s.status
+        }));
+        
+        renderSchedule(schedules);
+
+      } catch (err) {
+        console.error(err);
+        alert("โหลดตารางไม่ได้ (Supabase): " + err.message);
+        document.getElementById('loadingSchedule').classList.add('hidden');
+      }
     }
 
-    function submitData() {
+    async function submitData() {
       const schoolSelect = document.getElementById('schoolSelect');
       if (!schoolSelect.value) return alert("กรุณาเลือกโรงเรียน");
+
+      const schoolCode = schoolSelect.value;
+      const schoolObj = schoolsMap[schoolCode] || { school_name: schoolSelect.options[schoolSelect.selectedIndex].text.split(' : ')[1] };
 
       const data = {
         userId: userProfile.userId,
         displayName: userProfile.displayName,
-        schoolCode: schoolSelect.value,
-        schoolName: schoolSelect.options[schoolSelect.selectedIndex].text.split(' : ')[1],
+        schoolCode: schoolCode,
+        schoolName: schoolObj.school_name,
         startDate: document.getElementById('startDate').value,
         endDate: document.getElementById('endDate').value,
         reason: document.getElementById('reason').value,
@@ -217,29 +283,87 @@
         if (radio) data.type = radio.value; 
       }
 
-      if (confirm(`ยืนยันการส่งข้อมูล?\nผู้แจ้ง: ${data.displayName}`)) {
+      const confirmMsg = `ยืนยันการส่งข้อมูล?\n\nผู้แจ้ง: ${data.displayName}\nโรงเรียน: ${data.schoolName}\nวันที่: ${data.startDate} ${data.startDate !== data.endDate ? ' - ' + data.endDate : ''}\nเหตุผล: ${data.reason}`;
+
+      if (confirm(confirmMsg)) {
         document.getElementById('loading').style.display = 'flex';
-        document.getElementById('status-text').innerText = "กำลังบันทึกข้อมูล...";
+        document.getElementById('status-text').innerText = "กำลังบันทึกข้อมูล (Supabase)...";
         
-        // ใช้ fetch POST ส่งข้อมูลกลับไป GAS (CORS Friendly)
-        fetch(GAS_API_URL, {
-          method: 'POST',
-          body: JSON.stringify(data),
-          // mode: 'no-cors' // ใช้ no-cors เพื่อเลี่ยง error แต่อ่าน response ไม่ได้
-          // แต่ถ้า GAS return textOutput json จะอ่านได้
-        })
-        .then(response => response.json())
-        .then(res => {
-           alert("บันทึกข้อมูลเรียบร้อยแล้ว\nกรุณาตรวจสอบสถานะได้ที่ Dashboard");
-           liff.closeWindow();
-        })
-        .catch(err => {
-           // บางที success แต่ browser บล็อก response ของ GAS ก็มี
-           console.error(err);
-           alert("ส่งข้อมูลเรียบร้อย (แต่อาจมีการแจ้งเตือน network)");
-           liff.closeWindow();
-        });
+        try {
+            // A. Insert into Supabase
+            // Table: requests_log
+            const sbPayload = {
+                user_id: data.userId,
+                user_name: data.displayName,
+                school_code: data.schoolCode,
+                start_date: data.startDate,
+                end_date: data.endDate,
+                type: data.type,
+                reason: data.reason,
+                status: 'Pending',
+                affected_sessions: data.selectedSessions.length > 0 ? JSON.stringify(data.selectedSessions) : null,
+                created_at: new Date().toISOString()
+            };
+
+            const { error: insertError } = await supabase.from('requests_log').insert([sbPayload]);
+            
+            if (insertError) throw insertError;
+            
+            // B. Send to Discord
+            document.getElementById('status-text').innerText = "กำลังแจ้งเตือน Discord...";
+            await sendToDiscord(data);
+
+            // C. Legacy Email (GAS) - Fire and Forget (Optional)
+            document.getElementById('status-text').innerText = "กำลังส่งอีเมล...";
+            fetch(GAS_API_URL, {
+                method: 'POST',
+                body: JSON.stringify(data),
+                mode: 'no-cors'
+            }).catch(e => console.warn("Email trigger failed", e));
+
+            alert("บันทึกข้อมูลเรียบร้อยแล้ว!");
+            liff.closeWindow();
+
+        } catch (err) {
+            console.error(err);
+            alert("เกิดข้อผิดพลาดในการบันทึก: " + err.message);
+            document.getElementById('loading').style.display = 'none';
+        }
       }
+    }
+    
+    async function sendToDiscord(data) {
+        const color = data.type === 'Whole Day' ? 15158332 : 3066993; // Red for Whole Day, Green otherwise
+        
+        const embed = {
+            title: "📢 แจ้งวันหยุด/งดการสอน (Holiday Request)",
+            color: color,
+            fields: [
+                { name: "ผู้แจ้ง (Reporter)", value: data.displayName, inline: true },
+                { name: "โรงเรียน (School)", value: `${data.schoolCode} - ${data.schoolName}`, inline: true },
+                { name: "วันที่ (Date)", value: `${data.startDate} ${data.startDate !== data.endDate ? ' ➡️ ' + data.endDate : ''}`, inline: false },
+                { name: "ประเภท (Type)", value: data.type, inline: true },
+                { name: "เหตุผล (Reason)", value: data.reason || "-", inline: false }
+            ],
+            footer: { text: "Braincloud Operations System", icon_url: "https://via.placeholder.com/20" },
+            timestamp: new Date().toISOString()
+        };
+        
+        if (data.type === 'Specific Sessions' && data.selectedSessions.length > 0) {
+            embed.fields.push({ name: "คาบที่ได้รับผลกระทบ", value: `${data.selectedSessions.length} sessions selected` });
+        }
+
+        const payload = {
+            username: "Holiday Bot",
+            avatar_url: "https://img.icons8.com/color/96/beach.png",
+            embeds: [embed]
+        };
+
+        await fetch(DISCORD_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
     }
 
     // --- UI Logic (คงเดิม) ---
