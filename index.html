@@ -1,499 +1,86 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>แจ้งวันหยุดโรงเรียน (v2.1.4)</title>
-  
-  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-  
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap');
-    body { font-family: 'Sarabun', sans-serif; }
-    
-    .loading-overlay {
-      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(255,255,255,0.98); z-index: 9999;
-      display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px;
-    }
-    .spinner {
-      border: 4px solid #f3f3f3; border-top: 4px solid #16a34a; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 20px;
-    }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    .session-card.selected { border-color: #ef4444; background-color: #fef2f2; }
-    .session-card.disabled { opacity: 0.7; background-color: #f3f4f6; pointer-events: none; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Supabase Connection Test</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  body { font-family: monospace; padding: 20px; word-wrap: break-word; font-size: 14px; }
+  .log { margin-bottom: 5px; border-bottom: 1px solid #eee; padding: 2px; }
+  .error { color: red; font-weight: bold; }
+  .success { color: green; font-weight: bold; }
+  h1 { font-size: 18px; }
+</style>
 </head>
-<body class="bg-gray-100 min-h-screen pb-20">
-
-  <!-- Loading -->
-  <div id="loading" class="loading-overlay">
-    <div class="spinner"></div>
-    <p class="font-bold text-gray-700">กำลังเชื่อมต่อระบบ...</p>
-    <p id="status-text" class="text-sm text-gray-500 mt-2">...</p>
-  </div>
-
-  <div id="main-container" class="max-w-md mx-auto bg-white min-h-screen shadow-xl relative hidden">
-    <!-- Header -->
-    <div class="bg-green-600 p-6 rounded-b-3xl text-white shadow-lg">
-      <div class="flex justify-between items-center">
-        <div>
-          <h1 class="text-xl font-bold">แจ้งวันหยุด</h1>
-          <p class="text-green-100 text-xs mt-1">Braincloud Operations</p>
-        </div>
-        <div class="text-center">
-           <img id="userPic" src="https://via.placeholder.com/40" class="w-12 h-12 rounded-full border-2 border-white shadow-sm mx-auto bg-gray-200">
-           <p id="userNameDisplay" class="text-xs font-bold mt-1 text-white">Guest</p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Form -->
-    <form id="mainForm" class="p-5 space-y-6">
-      <!-- 1. School -->
-      <div>
-        <label class="block text-sm font-semibold text-gray-700 mb-2">🏫 โรงเรียน</label>
-        <select id="schoolSelect" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 bg-gray-50" onchange="checkScheduleCondition()">
-          <option value="" disabled selected>-- กำลังโหลดรายชื่อ --</option>
-        </select>
-      </div>
-
-      <!-- 2. Date -->
-      <div class="bg-gray-50 p-4 rounded-xl border border-gray-200">
-        <div class="flex justify-between items-center mb-2">
-          <label class="block text-sm font-semibold text-gray-700">📅 วันที่</label>
-          <label class="flex items-center space-x-2 text-xs text-gray-500">
-            <input type="checkbox" id="multiDayCheck" class="rounded text-green-600" onchange="toggleEndDate()">
-            <span>หยุดหลายวัน?</span>
-          </label>
-        </div>
-        <div class="grid grid-cols-2 gap-2">
-          <div class="col-span-2">
-            <span class="text-xs text-gray-500 ml-1">เริ่มต้น</span>
-            <input type="date" id="startDate" class="w-full p-2 border border-gray-300 rounded-lg" onchange="handleDateChange()">
-          </div>
-          <div id="endDateContainer" class="col-span-2 hidden">
-             <span class="text-xs text-gray-500 ml-1">สิ้นสุด</span>
-             <input type="date" id="endDate" class="w-full p-2 border border-gray-300 rounded-lg">
-          </div>
-        </div>
-      </div>
-
-      <!-- 3. Schedule -->
-      <div id="scheduleSection" class="hidden">
-        <div class="flex justify-between items-center mb-2">
-          <h3 class="font-bold text-gray-800">ตารางเรียนวันนี้</h3>
-          <span class="text-xs text-gray-500">แตะเพื่อเลือกคาบที่งด</span>
-        </div>
-        <div id="loadingSchedule" class="text-center py-4 hidden"><i class="fas fa-circle-notch fa-spin text-green-500"></i> กำลังดึงตาราง...</div>
-        <div id="scheduleList" class="space-y-2"></div>
-        <div id="noScheduleMsg" class="hidden text-center py-4 text-gray-400 text-sm bg-gray-50 rounded-lg border border-dashed">ไม่พบตารางเรียนของวันนี้</div>
-      </div>
-
-      <!-- 4. Manual Type -->
-      <div id="manualTypeSection">
-        <label class="block text-sm font-semibold text-gray-700 mb-2">⏰ รูปแบบการหยุด</label>
-        <div class="grid grid-cols-2 gap-3">
-          <label class="cursor-pointer">
-            <input type="radio" name="periodType" value="Whole Day" class="peer sr-only" checked>
-            <div class="p-3 text-center border rounded-lg peer-checked:bg-green-100 peer-checked:border-green-500 peer-checked:text-green-700 transition-all">หยุดทั้งวัน</div>
-          </label>
-          <label class="cursor-pointer">
-            <input type="radio" name="periodType" value="Partial" class="peer sr-only">
-            <div class="p-3 text-center border rounded-lg peer-checked:bg-yellow-100 peer-checked:border-yellow-500 peer-checked:text-yellow-700 transition-all">บางคาบ (ระบุเอง)</div>
-          </label>
-        </div>
-      </div>
-
-      <!-- 5. Reason -->
-      <div>
-        <label class="block text-sm font-semibold text-gray-700 mb-2">📝 สาเหตุ / หมายเหตุ</label>
-        <textarea id="reason" rows="3" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500" placeholder="เช่น กิจกรรมวันเด็ก, น้ำท่วม, ครูป่วย"></textarea>
-      </div>
-
-      <!-- Submit -->
-      <button type="button" onclick="submitData()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl shadow-lg transition-transform transform active:scale-95 flex justify-center items-center">
-        <span>ยืนยันข้อมูล</span><i class="fas fa-arrow-right ml-2"></i>
-      </button>
-    </form>
-  </div>
-
+<body>
+  <h1>Supabase Diagnostic v1.0</h1>
+  <div id="status">Initializing...</div>
+  <hr>
+  <div id="output"></div>
+  
   <script>
-    // ***********************************************
-    // ⚙️ SETUP (แก้ตรงนี้)
-    // ***********************************************
-    const MY_LIFF_ID = "2008775079-PKwtDJOx"; 
-    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw0Z_hAvk8N27w4SUNiRiisKplikxiVvntTDbBTmllC4uzT3rHp2QMwkMvpAVKS4yQWyA/exec";
-    
-    // Suapbase & Discord Configuration
+    const logDiv = document.getElementById('output');
+    const statusDiv = document.getElementById('status');
+
+    function log(msg, type='') {
+      console.log(msg);
+      const div = document.createElement('div');
+      div.className = 'log ' + type;
+      div.innerHTML = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logDiv.appendChild(div);
+    }
+
+    log("Script started execution.");
+
     const SUPABASE_URL = "https://cgznmxcecljfybcgujjb.supabase.co";
+    // Using the key you provided in the previous file
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ";
-    const DISCORD_WEBHOOK_URL = "https://discordapp.com/api/webhooks/1461190566518853737/u7Fc4QlRExojVwUDAyMEiKSlTsVt6M5NzBW55oegDqLwDr1aSm4lmUNnq1xQBi_bmc_w";
-    const APP_VERSION = "v2.1.4 (Clean Build)"; // Version Number
 
-    // Global Error Handler (Moved to top)
-    window.onerror = function(msg, url, line) {
-       const statusDiv = document.getElementById('status-text');
-       if(statusDiv) statusDiv.innerHTML += `<br><span style="color:red; font-size:10px;">Err: ${msg} (L${line})</span>`;
-       return false; 
-    };
-
-    function logStatus(msg) {
-        console.log(msg);
-        const el = document.getElementById('status-text');
-        if(el) el.innerHTML = msg;
-    }
-
-    // ***********************************************
-    // 🛡️ SAFE INITIALIZATION
-    // ***********************************************
-    let supabase = null;
-    
-    // Attempt to init Supabase immediately but safely
-    if (typeof window.supabase !== 'undefined') {
-        try {
-            supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-        } catch(e) { console.error("Supabase Init Error", e); }
-    }
-
-    let userProfile = { userId: "U_GUEST", displayName: "Guest" };
-    let selectedSessions = new Set();
-    let schoolsMap = {}; // Cache school data
-
-    // --- Bootstrapper ---
-    document.addEventListener('DOMContentLoaded', () => {
-        logStatus("DOM Loaded. Initializing...");
-        initApp();
-    });
-
-    // Fallback if DOMContentLoaded already fired or missed
-    if (document.readyState === 'interactive' || document.readyState === 'complete') {
-        logStatus("ReadyState Interactive. Initializing...");
-        initApp();
-    }
-
-    async function initApp() {
-        // Prevent double init
-        if (window.appInitialized) return;
-        window.appInitialized = true;
-
-      // Show Version
-      const vDiv = document.createElement('div');
-      vDiv.style = "position:absolute; bottom:5px; right:5px; font-size:10px; color:#aaa; z-index:99999;";
-      vDiv.innerText = APP_VERSION;
-      document.body.appendChild(vDiv);
-      
-      logStatus("System starting...");
-
-      // Safety Timeout
-      setTimeout(() => {
-        const loader = document.getElementById('loading');
-        if (loader && loader.style.display !== 'none') {
-             logStatus("<span style='color:orange'>Timeout: Force allow access</span>");
-             setTimeout(() => {
-                loader.style.display = 'none';
-                document.getElementById('main-container').classList.remove('hidden');
-             }, 1000);
+    async function testConnection() {
+      try {
+        statusDiv.innerText = "Checking Dependencies...";
+        
+        if (typeof window.supabase === 'undefined') {
+          throw new Error("Supabase SDK NOT loaded. Check script tag/CDN.");
         }
-      }, 5000);
+        log("Supabase SDK detected.");
 
-      // Check Critical Dependencies
-      if (!supabase) {
-           // Try lazy init
-           if (typeof window.supabase !== 'undefined') {
-               supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-           } else {
-               logStatus("<span style='color:red'>Critical: Supabase SDK Not Found.</span>");
-               return; 
-           }
-      }
+        statusDiv.innerText = "Connecting...";
+        const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        
+        log(`Client initialized. URL: ${SUPABASE_URL}`);
+        log("Attempting to fetch 1 row from 'dim_school'...");
 
-      try {
-          // Parallel Execution to prevent one blocking the other
-          logStatus("Loading Data & Login...");
-          
-          const schoolPromise = fetchSchoolsSupabase();
-          
-          const liffPromise = (async () => {
-              try {
-                await liff.init({ liffId: MY_LIFF_ID });
-                if (liff.isLoggedIn()) {
-                  const profile = await liff.getProfile();
-                  userProfile = profile;
-                  document.getElementById('userNameDisplay').innerText = profile.displayName;
-                  document.getElementById('userPic').src = profile.pictureUrl;
-                } else {
-                  liff.login(); 
-                }
-              } catch (err) {
-                console.error("LIFF Error", err);
-                logStatus("LIFF Failed (Guest Mode) " + err.message);
-              }
-          })();
-
-          await Promise.allSettled([schoolPromise, liffPromise]);
-          
-          logStatus("Ready.");
-          // Show App
-          document.getElementById('loading').style.display = 'none';
-          document.getElementById('main-container').classList.remove('hidden');
-      
-      } catch (fatalErr) {
-          logStatus("Fatal Error: " + fatalErr.message);
-      }
-    };
-
-    // --- API Calls (Refactored to Supabase) ---
-    async function fetchSchoolsSupabase() {
-      const statusText = document.getElementById('status-text');
-      statusText.innerText = "กำลังดึงรายชื่อโรงเรียน (SB)...";
-      
-      try {
-        const { data, error } = await supabase
+        const start = Date.now();
+        const { data, error } = await sb
           .from('dim_school')
-          .select('school_id, school_code, school_name')
-          .neq('status', 'Inactive') // Assuming there's a status column, or remove if not
-          .order('school_code');
+          .select('school_name')
+          .limit(1);
+        const duration = Date.now() - start;
 
-        if (error) throw error;
-
-        const select = document.getElementById('schoolSelect');
-        select.innerHTML = '<option value="" disabled selected>-- เลือกโรงเรียน --</option>';
-        
-        data.forEach(s => {
-           // We use school_code as value to maintain compatibility with existing logic/backend
-           // But we store the full object in a map for later use (e.g. school_id)
-           schoolsMap[s.school_code] = s;
-           
-           const option = document.createElement('option');
-           option.value = s.school_code;
-           option.text = `${s.school_code} : ${s.school_name}`;
-           select.appendChild(option);
-        });
-
-      } catch (err) {
-        console.error(err);
-        alert("โหลดโรงเรียนไม่ได้ (Supabase): " + err.message);
-      }
-    }
-
-    // Deprecated for usage, replaced by fetchSchoolsSupabase but kept wrapper name if needed
-    function fetchSchools() { fetchSchoolsSupabase(); }
-
-    async function fetchSchedule(code, date) {
-      document.getElementById('loadingSchedule').classList.remove('hidden');
-      document.getElementById('scheduleList').innerHTML = "";
-      
-      try {
-        // Find school_id from code
-        const school = schoolsMap[code];
-        if (!school) throw new Error("School ID not found for code: " + code);
-
-        const { data, error } = await supabase
-          .from('fact_daily_session')
-          .select('session_id, class_name, start_time, end_time, status, actual_teacher_id')
-          .eq('school_id', school.school_id)
-          .eq('date', date)
-          .order('start_time');
-
-        if (error) throw error;
-
-        // Map to format expected by renderSchedule
-        // Note: We might be missing Teacher Names if we don't join. 
-        // For simplicity, we'll display ID or fetch teachers separately. 
-        // Or if 'fact_daily_session' has generic 'teacher_id', we use that.
-        // Let's assume basic fields for now.
-        
-        const schedules = data.map(s => ({
-            id: s.session_id,
-            className: s.class_name,
-            time: `${s.start_time.slice(0,5)} - ${s.end_time.slice(0,5)}`,
-            teacher: s.actual_teacher_id || "TBA", // Ideally join with dim_user or cache
-            status: s.status
-        }));
-        
-        renderSchedule(schedules);
-
-      } catch (err) {
-        console.error(err);
-        alert("โหลดตารางไม่ได้ (Supabase): " + err.message);
-        document.getElementById('loadingSchedule').classList.add('hidden');
-      }
-    }
-
-    async function submitData() {
-      const schoolSelect = document.getElementById('schoolSelect');
-      if (!schoolSelect.value) return alert("กรุณาเลือกโรงเรียน");
-
-      const schoolCode = schoolSelect.value;
-      const schoolObj = schoolsMap[schoolCode] || { school_name: schoolSelect.options[schoolSelect.selectedIndex].text.split(' : ')[1] };
-
-      const data = {
-        userId: userProfile.userId,
-        displayName: userProfile.displayName,
-        schoolCode: schoolCode,
-        schoolName: schoolObj.school_name,
-        startDate: document.getElementById('startDate').value,
-        endDate: document.getElementById('endDate').value,
-        reason: document.getElementById('reason').value,
-        type: "Whole Day", 
-        selectedSessions: []
-      };
-
-      if (selectedSessions.size > 0) { 
-        data.type = "Specific Sessions"; 
-        data.selectedSessions = Array.from(selectedSessions); 
-      } else { 
-        const radio = document.querySelector('input[name="periodType"]:checked'); 
-        if (radio) data.type = radio.value; 
-      }
-
-      const confirmMsg = `ยืนยันการส่งข้อมูล?\n\nผู้แจ้ง: ${data.displayName}\nโรงเรียน: ${data.schoolName}\nวันที่: ${data.startDate} ${data.startDate !== data.endDate ? ' - ' + data.endDate : ''}\nเหตุผล: ${data.reason}`;
-
-      if (confirm(confirmMsg)) {
-        document.getElementById('loading').style.display = 'flex';
-        document.getElementById('status-text').innerText = "กำลังบันทึกข้อมูล (Supabase)...";
-        
-        try {
-            // A. Insert into Supabase
-            // Table: requests_log
-            const sbPayload = {
-                user_id: data.userId,
-                user_name: data.displayName,
-                school_code: data.schoolCode,
-                start_date: data.startDate,
-                end_date: data.endDate,
-                type: data.type,
-                reason: data.reason,
-                status: 'Pending',
-                affected_sessions: data.selectedSessions.length > 0 ? JSON.stringify(data.selectedSessions) : null,
-                created_at: new Date().toISOString()
-            };
-
-            const { error: insertError } = await supabase.from('requests_log').insert([sbPayload]);
-            
-            if (insertError) throw insertError;
-            
-            // B. Send to Discord
-            document.getElementById('status-text').innerText = "กำลังแจ้งเตือน Discord...";
-            await sendToDiscord(data);
-
-            // C. Legacy Email (GAS) - Fire and Forget (Optional)
-            document.getElementById('status-text').innerText = "กำลังส่งอีเมล...";
-            fetch(GAS_API_URL, {
-                method: 'POST',
-                body: JSON.stringify(data),
-                mode: 'no-cors'
-            }).catch(e => console.warn("Email trigger failed", e));
-
-            alert("บันทึกข้อมูลเรียบร้อยแล้ว!");
-            liff.closeWindow();
-
-        } catch (err) {
-            console.error(err);
-            alert("เกิดข้อผิดพลาดในการบันทึก: " + err.message);
-            document.getElementById('loading').style.display = 'none';
-        }
-      }
-    }
-    
-    async function sendToDiscord(data) {
-        const color = data.type === 'Whole Day' ? 15158332 : 3066993; // Red for Whole Day, Green otherwise
-        
-        const embed = {
-            title: "📢 แจ้งวันหยุด/งดการสอน (Holiday Request)",
-            color: color,
-            fields: [
-                { name: "ผู้แจ้ง (Reporter)", value: data.displayName, inline: true },
-                { name: "โรงเรียน (School)", value: `${data.schoolCode} - ${data.schoolName}`, inline: true },
-                { name: "วันที่ (Date)", value: `${data.startDate} ${data.startDate !== data.endDate ? ' ➡️ ' + data.endDate : ''}`, inline: false },
-                { name: "ประเภท (Type)", value: data.type, inline: true },
-                { name: "เหตุผล (Reason)", value: data.reason || "-", inline: false }
-            ],
-            footer: { text: "Braincloud Operations System", icon_url: "https://via.placeholder.com/20" },
-            timestamp: new Date().toISOString()
-        };
-        
-        if (data.type === 'Specific Sessions' && data.selectedSessions.length > 0) {
-            embed.fields.push({ name: "คาบที่ได้รับผลกระทบ", value: `${data.selectedSessions.length} sessions selected` });
+        if (error) {
+          statusDiv.innerText = "Connection Failed";
+          statusDiv.style.color = "red";
+          log("Supabase Error: " + JSON.stringify(error), 'error');
+          log("Hint: Check RLS (Row Level Security) policies or Table Permissions.", 'error');
+        } else {
+          statusDiv.innerText = "Connection Successful";
+          statusDiv.style.color = "green";
+          log(`Success! Request took ${duration}ms.`, 'success');
+          log("Data Received: " + JSON.stringify(data), 'success');
         }
 
-        const payload = {
-            username: "Holiday Bot",
-            avatar_url: "https://img.icons8.com/color/96/beach.png",
-            embeds: [embed]
-        };
-
-        await fetch(DISCORD_WEBHOOK_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-    }
-
-    // --- UI Logic (คงเดิม) ---
-    function toggleEndDate() {
-      const isMulti = document.getElementById('multiDayCheck').checked;
-      document.getElementById('endDateContainer').classList.toggle('hidden', !isMulti);
-      if(!isMulti) document.getElementById('endDate').value = document.getElementById('startDate').value;
-      checkScheduleCondition();
-    }
-
-    function handleDateChange() {
-      if (!document.getElementById('multiDayCheck').checked) document.getElementById('endDate').value = document.getElementById('startDate').value;
-      checkScheduleCondition();
-    }
-
-    function checkScheduleCondition() {
-      const schoolCode = document.getElementById('schoolSelect').value;
-      const startDate = document.getElementById('startDate').value;
-      const isMulti = document.getElementById('multiDayCheck').checked;
-      const today = new Date().toISOString().split('T')[0];
-
-      if (schoolCode && !isMulti && startDate === today) {
-        document.getElementById('scheduleSection').classList.remove('hidden');
-        document.getElementById('manualTypeSection').classList.add('hidden');
-        document.getElementById('noScheduleMsg').classList.add('hidden');
-        fetchSchedule(schoolCode, startDate);
-      } else {
-        document.getElementById('scheduleSection').classList.add('hidden');
-        document.getElementById('manualTypeSection').classList.remove('hidden');
-        selectedSessions.clear();
+      } catch (e) {
+        statusDiv.innerText = "Critical Error";
+        statusDiv.style.color = "red";
+        log("EXCEPTION: " + e.message, 'error');
+        log(e.stack);
       }
     }
 
-    function renderSchedule(schedules) {
-      document.getElementById('loadingSchedule').classList.add('hidden');
-      const container = document.getElementById('scheduleList');
-      selectedSessions.clear();
-      
-      if (!schedules || schedules.length === 0) {
-        document.getElementById('noScheduleMsg').classList.remove('hidden');
-        document.getElementById('manualTypeSection').classList.remove('hidden');
-        return;
-      }
-
-      schedules.forEach(s => {
-        const card = document.createElement('div');
-        const isCover = s.status === 'Cover';
-        const isCancelled = s.status && s.status.toLowerCase().includes('cancelled');
-        let cardClass = "border rounded-lg p-3 bg-white flex justify-between items-center cursor-pointer mb-2 " + (isCancelled ? "opacity-50 pointer-events-none bg-gray-100" : "hover:shadow-md");
-        
-        card.className = cardClass;
-        if (!isCancelled) card.onclick = () => toggleSession(card, s.id);
-
-        card.innerHTML = `<div><div class="font-bold text-gray-800">${s.className}</div><div class="text-xs text-gray-500">${s.time} | ${s.teacher} ${isCover ? '(Sub)' : ''}</div></div><div class="check-icon hidden text-red-600"><i class="fas fa-times-circle fa-lg"></i></div>`;
-        container.appendChild(card);
-      });
-    }
-
-    function toggleSession(card, id) {
-      if (selectedSessions.has(id)) { selectedSessions.delete(id); card.classList.remove('border-red-500', 'bg-red-50'); card.querySelector('.check-icon').classList.add('hidden'); } 
-      else { selectedSessions.add(id); card.classList.add('border-red-500', 'bg-red-50'); card.querySelector('.check-icon').classList.remove('hidden'); }
-    }
+    // Run immediately when body parses
+    testConnection();
   </script>
 </body>
 </html>
