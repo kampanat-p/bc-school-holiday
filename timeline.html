@@ -3,6 +3,7 @@
 <head>
   <base target="_top">
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>BC Timeline (Supabase)</title>
   <script type="text/javascript" src="https://unpkg.com/vis-timeline@latest/standalone/umd/vis-timeline-graph2d.min.js"></script>
   <link href="https://unpkg.com/vis-timeline@latest/styles/vis-timeline-graph2d.min.css" rel="stylesheet" type="text/css" />
@@ -248,7 +249,7 @@
   <div id="mouse-tooltip">00:00</div>
 
   <div id="sim-controls">
-    <div id="version-display" style="position:fixed; bottom:5px; right:5px; opacity:0.5; font-size:10px; z-index:9999; color:#888;">v10.8 (Mobile UX)</div>
+    <div id="version-display" style="position:fixed; bottom:5px; right:5px; opacity:0.6; font-size:10px; z-index:9999; color:#666; background:rgba(255,255,255,0.7); padding:2px 4px; border-radius:3px;">v10.9 (Viewport Fix)</div>
       <div class="sim-status">
           <span class="sim-status-title">🔮 Simulation Mode Active</span>
           <span class="sim-status-desc">Changes are temporary. Click items to simulate moves.</span>
@@ -1115,8 +1116,11 @@
     }
 
     function zoom(percentage) {
-        if (timeline) {
-            timeline.zoomOut(percentage);
+        if (!timeline) return;
+        if (percentage < 0) {
+             timeline.zoomIn(Math.abs(percentage));
+        } else {
+             timeline.zoomOut(percentage);
         }
     }
 
