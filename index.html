@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>แจ้งวันหยุด (v3.0.0)</title>
+  <title>Holiday Request (v3.0.0)</title>
   
   <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -51,7 +51,7 @@
     <!-- Profile Header -->
     <div class="bg-green-600 p-6 rounded-b-3xl text-white shadow-lg flex justify-between items-center">
       <div>
-        <h1 class="text-xl font-bold">แจ้งวันหยุด</h1>
+        <h1 class="text-xl font-bold">Holiday Request</h1>
         <p class="text-green-100 text-xs">Braincloud Operations</p>
       </div>
       <div class="flex flex-col items-center">
@@ -66,26 +66,26 @@
       
       <!-- 1. School -->
       <div>
-        <label class="block text-sm font-semibold text-gray-700 mb-2">🏫 โรงเรียน</label>
+        <label class="block text-sm font-semibold text-gray-700 mb-2">🏫 School</label>
         <select id="schoolSelect" class="w-full p-3 border border-gray-300 rounded-xl bg-gray-50 focus:ring-2 focus:ring-green-500" onchange="checkScheduleCondition()">
-          <option value="" disabled selected>-- เลือกโรงเรียน --</option>
+          <option value="" disabled selected>-- Select School --</option>
         </select>
       </div>
 
       <!-- 2. Date -->
       <div class="bg-gray-50 p-4 rounded-xl border border-gray-200 shadow-sm">
         <div class="flex justify-between items-center mb-2">
-            <label class="block text-sm font-semibold text-gray-700">📅 วันที่</label>
+            <label class="block text-sm font-semibold text-gray-700">📅 Date</label>
             <label class="flex items-center space-x-2 text-xs text-gray-500 cursor-pointer">
                 <input type="checkbox" id="multiDayCheck" class="rounded text-green-600" onchange="toggleEndDate()">
-                <span>หยุดหลายวัน?</span>
+                <span>Multi-day?</span>
             </label>
         </div>
         
         <input type="date" id="startDate" class="w-full p-2 border border-gray-300 rounded-lg mb-2" onchange="checkScheduleCondition()">
         
         <div id="endDateContainer" class="hidden animate-fade-in">
-             <label class="block text-xs font-semibold text-gray-500 mb-1">ถึงวันที่</label>
+             <label class="block text-xs font-semibold text-gray-500 mb-1">To Date</label>
              <input type="date" id="endDate" class="w-full p-2 border border-gray-300 rounded-lg">
         </div>
       </div>
@@ -93,22 +93,22 @@
       <!-- 3. Schedule (Dynamic) -->
       <div id="scheduleSection" class="hidden">
         <div class="flex justify-between items-end mb-2">
-            <h3 class="font-bold text-gray-800">ตารางเรียน</h3>
-            <span class="text-xs text-gray-500">แตะเพื่อเลือกคาบที่งดสอน</span>
+            <h3 class="font-bold text-gray-800">Class Schedule</h3>
+            <span class="text-xs text-gray-500">Tap to select cancelled classes</span>
         </div>
         <div id="scheduleList" class="space-y-2"></div>
-        <p id="scheduleMsg" class="text-center text-gray-400 text-sm italic mt-4 hidden">ไม่มีตารางเรียนในวันนี้</p>
+        <p id="scheduleMsg" class="text-center text-gray-400 text-sm italic mt-4 hidden">No classes scheduled for today.</p>
       </div>
        
       <!-- 4. Reason -->
       <div>
-        <label class="block text-sm font-semibold text-gray-700 mb-2">📝 สาเหตุ / หมายเหตุ</label>
-        <textarea id="reason" rows="3" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500" placeholder="เช่น ป่วย, ลากิจ, วันหยุดพิเศษ..."></textarea>
+        <label class="block text-sm font-semibold text-gray-700 mb-2">📝 Reason / Remark</label>
+        <textarea id="reason" rows="3" class="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500" placeholder="e.g. Sick, Business, Special Holiday..."></textarea>
       </div>
 
       <!-- Submit -->
       <button type="button" onclick="submitData()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl shadow-lg transition-transform transform active:scale-95 flex justify-center items-center">
-        <i class="fas fa-paper-plane mr-2"></i> ยืนยันข้อมูล
+        <i class="fas fa-paper-plane mr-2"></i> Submit Data
       </button>
 
     </form>
@@ -189,19 +189,19 @@
         log("Fetching Schools...");
         const { data, error } = await state.supabase
             .from('dim_school')
-            .select('school_id, school_code, school_name_th, school_group')
+            .select('school_id, school_code, school_name_en, school_group')
             .eq('status', 'active') // <--- FILTER: active (lowercase)
             .order('school_code');
 
         if(error) throw error;
         
         const sel = document.getElementById('schoolSelect');
-        sel.innerHTML = '<option value="" disabled selected>-- เลือกโรงเรียน --</option>';
+        sel.innerHTML = '<option value="" disabled selected>-- Select School --</option>';
         data.forEach(s => {
             state.schools[s.school_code] = { ...s, group: s.school_group };
             const opt = document.createElement('option');
             opt.value = s.school_code;
-            opt.text = `${s.school_code} : ${s.school_name_th}`;
+            opt.text = `${s.school_code} : ${s.school_name_en}`;
             sel.appendChild(opt);
         });
     }

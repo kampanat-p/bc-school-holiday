@@ -101,7 +101,7 @@
       <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-2xl">
         <div>
           <h2 class="font-bold text-lg text-gray-800"><i class="fas fa-user-slash text-red-500 mr-2"></i>Absent Teachers</h2>
-          <p class="text-xs text-gray-500">รายชื่อครูที่ลาวันนี้</p>
+          <p class="text-xs text-gray-500">List of teachers absent today</p>
         </div>
         <button onclick="closeAbsentModal()" class="w-8 h-8 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center hover:bg-gray-300">
           <i class="fas fa-times"></i>
@@ -160,13 +160,13 @@
   <div id="mainContent" class="hidden">
     <div class="flex bg-white shadow-sm sticky top-16 z-40">
       <button onclick="switchTab('schedule')" id="tab-schedule" class="flex-1 py-3 text-sm text-center tab-active">
-        ตารางสอนวันนี้
+        Today's Schedule
       </button>
       <button onclick="switchTab('group')" id="tab-group" class="flex-1 py-3 text-sm text-center tab-inactive">
-        สรุปตามกลุ่ม
+        Group Summary
       </button>
       <button onclick="switchTab('cancel')" id="tab-cancel" class="flex-1 py-3 text-sm text-center tab-inactive">
-        การแจ้งยกเลิก
+        Cancellations
       </button>
     </div>
 
@@ -288,7 +288,7 @@
         renderCancellations();
 
         // Update Tab Label
-        document.getElementById('tab-schedule').innerHTML = `ตารางสอน (${rawData.metrics.total})`;
+        document.getElementById('tab-schedule').innerHTML = `Schedule (${rawData.metrics.total})`;
         applyFilter(); 
 
       } catch (err) {
