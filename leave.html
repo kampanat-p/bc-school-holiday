@@ -304,18 +304,18 @@
             box.classList.add('hidden');
         }
     });
- // Reset: gray/white
+
+    // --- Interaction ---
+    window.setType = (type) => {
+        state.selectedType = type;
+        document.querySelectorAll('.type-btn').forEach(b => {
+             // Reset: gray/white
             b.className = "type-btn p-2 rounded border text-sm text-center w-full bg-white text-gray-600 border-gray-200 hover:bg-gray-50";
         });
         const activeBtn = document.getElementById('btn-' + type);
         if(activeBtn) {
             // Active: Blue
-            activeBtn.className = "type-btn p-2 rounded border text-sm text-center w-full bg-blue-50 text-blue-700 border-blue
-            b.className = "type-btn p-2 rounded border text-sm text-center w-full bg-white text-gray-600 border-gray-200 hover:bg-gray-50";
-        });
-        const activeBtn = document.getElementById('btn-' + type);
-        if(activeBtn) {
-            activeBtn.className = "type-btn p-2 rounded border text-sm text-center w-full bg-green-50 text-green-700 border-green-500 font-bold shadow-sm";
+            activeBtn.className = "type-btn p-2 rounded border text-sm text-center w-full bg-blue-50 text-blue-700 border-blue-500 font-bold shadow-sm";
         }
     };
 
