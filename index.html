@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Holiday Request (v3.0.0)</title>
+  <title>Holiday Request (v3.1.0)</title>
   
   <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -49,7 +49,12 @@
   <div id="main-container" class="max-w-md mx-auto bg-white min-h-screen shadow-xl relative hidden">
     
     <!-- Profile Header -->
-    <div class="bg-green-600 p-6 rounded-b-3xl text-white shadow-lg flex justify-between items-center">
+    <div class="bg-green-600 p-6 rounded-b-3xl text-white shadow-lg flex justify-between items-center relative">
+      <!-- Force Refresh Icon (Top Right absolute) -->
+      <button onclick="window.location.reload()" class="absolute top-2 right-2 text-green-200 hover:text-white p-2">
+          <i class="fas fa-sync-alt text-xs"></i>
+      </button>
+
       <div>
         <h1 class="text-xl font-bold">Holiday Request</h1>
         <p class="text-green-100 text-xs">Braincloud Operations</p>
@@ -111,7 +116,6 @@
         <i class="fas fa-paper-plane mr-2"></i> Submit Data
       </button>
 
-    </form>
     
     <!-- Footer -->
     <div class="absolute bottom-2 left-0 w-full text-center pb-4 opacity-50 hover:opacity-100 transition-opacity">
