@@ -154,13 +154,23 @@ async function processSync(targetDate) {
     const sessions = data.sessions;
     console.log(`📥 Fetched ${sessions.length} sessions.`);
 
+    // --- Pre-fetch Existing Data for Watchdog ---
+    console.log("🐶 Watchdog: Loading existing sessions...");
+    const { data: existingRows } = await supabase
+        .from('fact_daily_session')
+        .select('session_id, status, is_payable, cancelled_at')
+        .eq('date', dbDateStr);
+    
+    const existingMap = new Map();
+    if (existingRows) existingRows.forEach(r => existingMap.set(r.session_id, r));
+
     const records = [];
     const nowISO = new Date().toISOString();
 
     for (const s of sessions) {
         if (!s.id || !s.start_time || !s.sc_code) continue;
 
-        // --- Logic Mapping (Same as GAS) ---
+        // --- Logic Mapping ---
         let webTeacherId = String(s.main_live_teacher_id);
         let status = "Normal";
         let actualWebId = webTeacherId;
@@ -171,23 +181,18 @@ async function processSync(targetDate) {
             status = "Substituted";
         }
 
-        // Check Cancel
-        let cancelledAt = null;
+        // Check Cancel (Raw Status)
         if (s.cancellation_id) {
             if (s.cancel_by === 'local') status = "Cancelled (School)";
             else status = "Cancelled (BC)";
-
-            if (s.cancellation_date) {
-                 cancelledAt = s.cancellation_date; 
-            }
         }
 
-        // --- ID TRANSLATION (Braincloud ID -> Database PK) ---
+        // --- ID TRANSLATION ---
         let actualDbId = userMap.get(actualWebId) || null;
         let originalDbId = userMap.get(webTeacherId) || null;
 
         if (!originalDbId) {
-            console.warn(`⚠️ Skipped Session ${s.id}: Original Teacher ID ${webTeacherId} not found in DB.`);
+            // console.warn(`⚠️ Skipped Session ${s.id}: Original Teacher ID ${webTeacherId} not found in DB.`);
             continue; 
         }
 
@@ -196,25 +201,69 @@ async function processSync(targetDate) {
         let schoolDbId = schoolMap.get(scCode);
 
         if (!schoolDbId) {
-             console.warn(`⚠️ Skipped Session ${s.id}: School Code '${scCode}' not found in DB.`);
+             // console.warn(`⚠️ Skipped Session ${s.id}: School Code '${scCode}' not found in DB.`);
              continue;
         }
 
-        // Determine Payability (Simplified)
+        // --- WATCHDOG LOGIC (Status & Payability) ---
+        let session_id = `${s.id}_${dbDateStr}_${s.start_time}`;
+        let prevData = existingMap.get(session_id);
+        
+        let cancelledAt = null;
         let isPayable = false;
-        if (status === "Cancelled (School)") {
-            isPayable = false; 
-        } else if (!status.startsWith("Cancelled")) {
-            isPayable = true; 
+
+        if (status.startsWith("Cancelled")) {
+            // 1. Determine Cancellation Time
+            const isJustCancelled = !prevData || !prevData.status.startsWith("Cancelled");
+
+            if (s.cancellation_date) {
+                cancelledAt = s.cancellation_date;
+            } else if (isJustCancelled) {
+                cancelledAt = nowISO; // Detect change NOW
+            } else if (prevData && prevData.cancelled_at) {
+                cancelledAt = prevData.cancelled_at; // Preserve Old
+            }
+
+            // 2. Determine Payability (3-Hour Rule for School Cancel)
+            if (status === "Cancelled (School)") {
+                if (isJustCancelled) {
+                    if (cancelledAt) {
+                        // Construct BKK ISO strings for accurate diff using Node's limited Date parsing
+                        // Session: YYYY-MM-DD + T + HH:mm:00 + 07:00
+                        const sessionIso = `${dbDateStr}T${s.start_time}:00+07:00`;
+                        const sessionTs = new Date(sessionIso).getTime();
+                        const cancelTs = new Date(cancelledAt).getTime();
+                        
+                        // Only calculate if we have valid timestamps
+                        if(!isNaN(sessionTs) && !isNaN(cancelTs)) {
+                            const diffHrs = (sessionTs - cancelTs) / (3600000); // ms -> hours
+                            if (diffHrs < 3) isPayable = true;
+                            console.log(`⏱ Watchdog: ${session_id} Cancelled @ ${cancelledAt}. Diff: ${diffHrs.toFixed(2)}h. Payable: ${isPayable}`);
+                        }
+                    }
+                } else {
+                    // Preserve old decision if existing
+                    isPayable = prevData ? prevData.is_payable : false;
+                }
+            } else {
+                isPayable = false; // KC/BC Cancel
+            }
+
+        } else {
+            // Normal / Substituted
+            isPayable = true;
+            if (prevData && prevData.status.startsWith("Cancelled")) {
+                console.log(`♻️ Reinstatement: ${session_id} changed from ${prevData.status} to ${status}`);
+            }
         }
 
         records.push({
-            session_id: `${s.id}_${dbDateStr}_${s.start_time}`,
+            session_id: session_id,
             date: dbDateStr,
             start_time: s.start_time,
             end_time: s.end_time,
             class_name: s.classroom,
-            school_id: schoolDbId,     // Use Translated ID (e.g. sc-0005)
+            school_id: schoolDbId,
             actual_teacher_id: actualDbId,   
             original_teacher_id: originalDbId, 
             status: status,
