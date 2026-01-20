@@ -125,6 +125,9 @@
                  <div class="w-8 flex justify-center mt-1"><i class="fas fa-database text-blue-500"></i></div>
                  <div class="flex-1 bg-blue-50 border border-blue-100 rounded-md p-2 text-blue-800">
                      <span class="font-bold">Database Record Found:</span> <span id="dbStatusText">Checking...</span>
+                     <div id="coverageSummary" class="mt-1 pt-1 border-t border-blue-200 text-xs font-semibold hidden">
+                         Checking coverage...
+                     </div>
                  </div>
             </div>
 
@@ -165,14 +168,17 @@
 
             <!-- Free Status Change Dropdown -->
             <div class="flex items-center justify-between border-t pt-4 mt-2">
-                 <div class="flex items-center w-full">
-                    <span class="text-sm font-semibold text-gray-500 mr-3">Status:</span>
-                    <select id="modalStatusSelect" onchange="updateStatus(this.value)" class="flex-1 form-select block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md shadow-sm border bg-white">
+                 <div class="flex items-center w-full space-x-2">
+                    <span class="text-sm font-semibold text-gray-500">Status:</span>
+                    <select id="modalStatusSelect" class="flex-1 form-select block w-full pl-3 pr-10 py-2 text-base sm:text-sm rounded-md shadow-sm border bg-white focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
                         <option value="Pending">Pending</option>
                         <option value="Approved">Approved</option>
                         <option value="Rejected">Rejected</option>
                         <option value="Cancelled">Cancelled</option>
                     </select>
+                    <button id="btnUpdateStatus" onclick="saveStatus()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-md shadow-sm transition whitespace-nowrap">
+                        Update
+                    </button>
                  </div>
             </div>
         </div>
@@ -580,12 +586,14 @@
         // --- Simple DB Verification (Teacher Only) ---
         const dbStat = document.getElementById('dbStatusContainer');
         const dbText = document.getElementById('dbStatusText');
+        const dbCoverage = document.getElementById('coverageSummary');
         const container = document.getElementById('modalClassesContainer');
         const tbody = document.getElementById('modalClassesBody');
         const loading = document.getElementById('modalClassesLoading');
         
         // Reset UI
         dbStat.className = "hidden flex items-start text-sm";
+        dbCoverage.classList.add('hidden');
         tbody.innerHTML = ''; container.classList.add('hidden'); loading.classList.add('hidden');
 
         // Main Logic
@@ -638,6 +646,10 @@
             
             const sessionMap = new Map();
             if(sessions) sessions.forEach(s => sessionMap.set(s.session_id, s));
+            
+            // Calculate Coverage Summary
+            let coveredCount = 0;
+            let totalCount = sessionInfo.length;
 
             tbody.innerHTML = sessionInfo.map(item => {
                 const s = sessionMap.get(item.id);
@@ -652,13 +664,18 @@
                     // --- Admin Coverage Check ---
                     // Simply checking if the teacher is substituted
                     let coverageHtml = '';
+                    let isCovered = false;
+                    
                     if (s.status === 'Cancelled') {
                             coverageHtml = `<div class="text-gray-400 text-xs mb-1"><i class="fas fa-ban"></i> Class Cancelled</div>`;
+                            isCovered = true;
                     } else if (currentTeacherId && currentTeacherId !== originalTeacherId && currentTeacherId !== 'undefined') {
                             coverageHtml = `<div class="text-teal-600 text-xs font-bold mb-1"><i class="fas fa-user-check"></i> Covered by ${teacherName}</div>`;
+                            isCovered = true;
                     } else {
                             coverageHtml = `<div class="text-xs text-orange-600 font-bold mb-1"><i class="fas fa-user-times"></i> Not Covered</div>`;
                     }
+                    if(isCovered) coveredCount++;
 
                     return `<tr class="hover:bg-gray-50 border-b">
                         <td class="px-3 py-2 text-sm font-bold text-blue-600 whitespace-nowrap">${(s.start_time||'').substring(0,5)} - ${(s.end_time||'').substring(0,5)}</td>
@@ -674,6 +691,19 @@
                 }
                 return `<tr class="bg-red-50 border-b"><td class="px-3 py-2 text-sm font-bold text-gray-400 font-mono">${item.time}</td><td class="px-3 py-2 text-sm text-gray-400 italic" colspan="3">Details not found</td></tr>`;
             }).join('');
+            
+            // Show Summary if DB Record Exists
+            if(!dbStat.className.includes('hidden') && totalCount > 0) {
+                 dbCoverage.classList.remove('hidden');
+                 if(coveredCount === totalCount) {
+                     dbCoverage.className = "mt-1 pt-1 border-t border-blue-200 text-xs font-bold text-teal-600 flex items-center";
+                     dbCoverage.innerHTML = `<i class="fas fa-check-circle mr-1"></i> Operations Complete! All ${totalCount} classes are covered/cancelled.`;
+                 } else {
+                     dbCoverage.className = "mt-1 pt-1 border-t border-blue-200 text-xs font-bold text-orange-600 flex items-center";
+                     dbCoverage.innerHTML = `<i class="fas fa-exclamation-triangle mr-1"></i> Attention: Only ${coveredCount}/${totalCount} classes are covered.`;
+                 }
+            }
+
         } else {
              container.classList.remove('hidden'); tbody.innerHTML = `<tr><td colspan="4" class="px-3 py-4 text-center text-sm text-gray-500 italic">Full Day Holiday</td></tr>`;
         }
@@ -691,20 +721,78 @@
             else select.classList.add('bg-orange-50', 'text-orange-700', 'border-orange-300');
         }
         updateSelectColor(p.status);
-        select.onchange = (e) => { updateStatus(e.target.value); updateSelectColor(e.target.value); };
+        select.onchange = (e) => { updateSelectColor(e.target.value); }; // Just change color, don't save yet
 
         document.getElementById('eventModal').classList.remove('hidden');
     }
 
     function closeModal() { document.getElementById('eventModal').classList.add('hidden'); currentEventId = null; }
 
-    async function updateStatus(newStatus) {
+    async function saveStatus() {
         if(!currentEventId) return;
+        const select = document.getElementById('modalStatusSelect');
+        const btn = document.getElementById('btnUpdateStatus');
+        const newStatus = select.value;
+        const originalText = btn.innerText;
+
+        // 1. Loading UI
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i>`;
+        
         try {
+            // 2. DB Update
             const { error } = await db.from('requests_log').update({ status: newStatus }).eq('id', currentEventId);
             if (error) throw error;
-            fetchEvents(); // Refresh in background
-        } catch (err) { alert("Error updating: " + err.message); }
+            
+            // 3. Optimistic Calendar Update
+            const evt = calendar.getEventById(currentEventId.toString());
+            if(evt) {
+                // Update Props
+                evt.setExtendedProp('status', newStatus);
+                
+                // Update Color
+                let bg, border, text;
+                const isLeave = evt.extendedProps.isLeave;
+                // Copy logic from fetchEvents (simplified)
+                if (newStatus === 'Rejected') { bg = '#f3f4f6'; border = 'transparent'; text = '#9ca3af'; }
+                else if (newStatus === 'Cancelled') { bg = '#fef2f2'; border = '#fee2e2'; text = '#991b1b'; }
+                else if (newStatus === 'Pending') { /* Keep orig or partial? */ bg = '#fff7ed'; border='#fdba74'; text='#9a3412'; } 
+                else if (isLeave) { // Approved Leave
+                    const type = (evt.extendedProps.leave_type || '').toLowerCase();
+                    if(type.includes('sick')) { bg = '#ffe4e6'; border = '#fda4af'; text = '#be123c'; }
+                    else if(type.includes('business')) { bg = '#dbeafe'; border = '#93c5fd'; text = '#1e40af'; }
+                    else { bg = '#e0e7ff'; border = '#a5b4fc'; text = '#3730a3'; }
+                } else { // Approved School
+                    bg = '#ccfbf1'; border = '#5eead4'; text = '#115e59'; 
+                }
+                
+                evt.setProp('backgroundColor', bg);
+                evt.setProp('borderColor', border);
+                evt.setProp('textColor', text);
+                
+                // Remove Pending Ring if not pending
+                let classNames = [...evt.classNames];
+                if(newStatus !== 'Pending') {
+                    classNames = classNames.filter(c => !c.includes('ring'));
+                } else {
+                    if(!classNames.includes('ring-2')) classNames.push('ring-2', 'ring-orange-400', 'ring-dashed', 'z-10');
+                }
+                evt.setProp('classNames', classNames);
+            }
+            
+            // 4. Success UI
+            btn.innerHTML = `<i class="fas fa-check"></i>`;
+            setTimeout(() => { 
+                btn.innerHTML = originalText; 
+                btn.disabled = false;
+                closeModal();
+            }, 500);
+
+        } catch (err) { 
+            alert("Error updating: " + err.message); 
+            btn.innerHTML = "Error";
+            btn.disabled = false;
+        }
     }
 </script>
 </body>
