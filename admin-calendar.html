@@ -66,6 +66,13 @@
 
         <!-- Toolbar -->
         <div class="flex space-x-2 border-l pl-6">
+            <!-- Filter Toggles -->
+            <div class="flex bg-gray-100 rounded-lg p-1 mr-2">
+                <button onclick="setFilter('all')" id="btn-filter-all" class="px-3 py-1 rounded-md text-xs font-bold bg-white text-gray-700 shadow-sm transition">ALL</button>
+                <button onclick="setFilter('school')" id="btn-filter-school" class="px-3 py-1 rounded-md text-xs font-bold text-gray-500 hover:text-teal-600 transition">SCHOOL</button>
+                <button onclick="setFilter('teacher')" id="btn-filter-teacher" class="px-3 py-1 rounded-md text-xs font-bold text-gray-500 hover:text-indigo-600 transition">TEACHER</button>
+            </div>
+
             <button onclick="openAlarmModal()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 p-2 rounded-full w-10 h-10 flex items-center justify-center transition shadow-sm relative group" title="Notification Settings">
                 <i class="fas fa-bell"></i>
                 <span id="alarm-indicator" class="absolute top-0 right-0 h-3 w-3 bg-red-500 rounded-full border-2 border-white hidden"></span>
@@ -190,6 +197,13 @@
                  <div class="text-center text-gray-400 text-sm py-4"><i class="fas fa-circle-notch fa-spin"></i> Loading...</div>
             </div>
             
+            <!-- Manual Trigger -->
+            <div class="mt-4 pt-4 border-t">
+                <button onclick="manualTrigger()" class="w-full bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold py-2 rounded flex items-center justify-center transition">
+                    <i class="fas fa-paper-plane mr-2"></i> Send Notification Now
+                </button>
+            </div>
+
             <p class="text-[10px] text-gray-400 mt-4 italic text-center">
                 * Alarms are universal. Only fires if page/bot is active.
             </p>
@@ -213,6 +227,7 @@
     let currentEventId = null;
     let teacherMap = new Map(); 
     let activeAlarms = [];
+    let currentFilter = 'all'; // 'all', 'school', 'teacher'
     const db = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
 
     // --- Init ---
@@ -345,21 +360,54 @@
         }
     }
 
+    async function manualTrigger() {
+        if(!confirm("Send notification to Discord now?")) return;
+        const pendingCount = parseInt(document.getElementById('stat-pending').innerText || '0');
+        if(pendingCount === 0) { alert("No pending tickets to notify about."); return; }
+        await sendDiscordNotification(pendingCount);
+        alert("Notification Sent!");
+    }
+
     async function sendDiscordNotification(count) {
         if(!CONFIG.DISCORD_WEBHOOK || CONFIG.DISCORD_WEBHOOK.includes("REPLACE")) return;
         
         // Simple dedupe: Check if we alerted recently in LocalStorage?
-        const lastAlert = localStorage.getItem('last_discord_alert');
-        const nowTs = Date.now();
-        if(lastAlert && (nowTs - parseInt(lastAlert)) < 60000) return; // Ignore if < 1m ago
+        // const lastAlert = localStorage.getItem('last_discord_alert');
+        // const nowTs = Date.now();
+        // if(lastAlert && (nowTs - parseInt(lastAlert)) < 60000) return; // Ignore if < 1m ago
+
+        // Fetch detailed pending list for the embed
+        let pendingDetails = [];
+        try {
+            const { data } = await db.from('requests_log').select('school_code, user_name, start_date, request_category').eq('status', 'Pending').limit(5);
+            if(data) pendingDetails = data;
+        } catch(e) {}
+
+        const schoolCount = pendingDetails.filter(r => r.request_category !== 'Teacher').length;
+        const teacherCount = pendingDetails.filter(r => r.request_category === 'Teacher').length;
+        
+        // Build Description
+        let desc = `There are **${count}** pending ticket(s) waiting for approval.\n\n`;
+        pendingDetails.forEach(r => {
+             const typeIcon = r.request_category === 'Teacher' ? '👤' : '🏫';
+             const title = r.request_category === 'Teacher' ? r.user_name : r.school_code;
+             desc += `> ${typeIcon} **${title}** (${r.start_date})\n`;
+        });
+        if(count > 5) desc += `> ... and ${count - 5} more.\n`;
 
         const payload = {
             username: "Braincloud Admin Bot",
-            content: `📢 **Daily Reminder**: There are **${count}** pending ticket(s) waiting for approval in the Dashboard.`,
+            avatar_url: "https://cdn-icons-png.flaticon.com/512/3652/3652191.png",
             embeds: [{
-                title: "Go to Dashboard",
-                url: window.location.href,
-                color: 15105570 // Orange
+                title: "🔔 Pending Requests Action Required",
+                description: desc,
+                color: 15105570, // Orange
+                fields: [
+                    { name: "School Requests", value: `${schoolCount} (Visible)`, inline: true },
+                    { name: "Teacher Requests", value: `${teacherCount} (Visible)`, inline: true },
+                    { name: "Dashboard", value: `[Click to Manage](${window.location.href})` }
+                ],
+                footer: { text: "Braincloud Operations • " + new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }) }
             }]
         };
 
@@ -369,7 +417,7 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
-            localStorage.setItem('last_discord_alert', nowTs.toString());
+            // localStorage.setItem('last_discord_alert', nowTs.toString());
         } catch(e) { console.error("Webhook failed", e); }
     }
 
@@ -415,6 +463,11 @@
             updateStats(data);
             const events = data.map(r => {
                 const isLeave = r.request_category === 'Teacher' || r.school_code === 'N/A';
+                
+                // FILTER LOGIC
+                if (currentFilter === 'school' && isLeave) return null;
+                if (currentFilter === 'teacher' && !isLeave) return null;
+                
                 const isPending = r.status === 'Pending';
                 
                 let bg, border, text;
@@ -461,9 +514,26 @@
                     backgroundColor: bg, borderColor: border, textColor: text, classNames: classNames,
                     extendedProps: { ...r, mapped_name: displayName, badgeText: badge, leave_type: r.type, isLeave: isLeave }
                 };
-            });
+            }).filter(Boolean); // Filter nulls
             if(successCallback) successCallback(events);
         } catch (err) { failureCallback(err); }
+    }
+    
+    // --- Filter Logic ---
+    function setFilter(type) {
+        currentFilter = type;
+        
+        // Update UI
+        ['all', 'school', 'teacher'].forEach(t => {
+            const btn = document.getElementById(`btn-filter-${t}`);
+            if(t === type) {
+                btn.className = "px-3 py-1 rounded-md text-xs font-bold bg-white text-gray-800 shadow-sm ring-1 ring-gray-200 transition transform scale-105";
+            } else {
+                btn.className = "px-3 py-1 rounded-md text-xs font-bold text-gray-400 hover:text-gray-600 transition";
+            }
+        });
+
+        calendar.refetchEvents();
     }
 
     function parseSessions(raw) {
