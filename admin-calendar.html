@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Admin Calendar v1.0.0</title>
+  <title>Admin Calendar v1.0.2</title>
 
   <!-- Libraries -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -21,9 +21,9 @@
     .fc-day-today { background-color: #f0fdf4 !important; }
     .fc-day-today .fc-daygrid-day-number { font-weight: bold; color: #16a34a; font-size: 1.2em; }
     /* Dim Past Days */
-    .fc-day-past { background-color: #f9fafb; opacity: 0.8; }
+    .fc-day-past { opacity: 0.8; background-color: #f9fafb; }
     
-    .fc-daygrid-event { font-size: 0.8rem; padding: 2px 4px; border-radius: 4px; }
+    .fc-daygrid-event { font-size: 0.75rem; border-radius: 4px; padding: 1px;}
     .fc-toolbar-title { font-size: 1.25rem !important; font-weight: 600; }
     .fc-button-primary { background-color: #059669 !important; border-color: #059669 !important; }
     .fc-button-primary:hover { background-color: #047857 !important; border-color: #047857 !important; }
@@ -32,8 +32,8 @@
     /* Modal Animation */
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-    .modal-backdrop { animation: fadeIn 0.2s ease-out; }
-    .modal-content { animation: slideUp 0.2s ease-out; }
+    .modal-backdrop { animation: fadeIn 0.15s ease-out; }
+    .modal-content { animation: slideUp 0.15s ease-out; }
   </style>
 </head>
 <body class="bg-gray-50 h-screen flex flex-col overflow-hidden">
@@ -56,10 +56,10 @@
             <p id="stat-pending" class="text-2xl font-bold text-orange-500">0</p>
         </div>
         <div class="text-center">
-            <p class="text-xs text-gray-400 font-semibold uppercase">Approved (This Month)</p>
+            <p class="text-xs text-gray-400 font-semibold uppercase">Approved (Mo.)</p>
             <p id="stat-approved" class="text-2xl font-bold text-green-600">0</p>
         </div>
-        <button onclick="fetchEvents()" class="bg-gray-100 hover:bg-gray-200 text-gray-600 p-2 rounded-full w-10 h-10 flex items-center justify-center transition">
+        <button onclick="fetchEvents()" class="bg-gray-100 hover:bg-gray-200 text-gray-600 p-2 rounded-full w-10 h-10 flex items-center justify-center transition shadow-sm" title="Refresh Data">
             <i class="fas fa-sync-alt"></i>
         </button>
     </div>
@@ -67,7 +67,7 @@
 
   <!-- Main Calendar Area -->
   <div class="flex-1 overflow-hidden p-4">
-    <div class="bg-white rounded-xl shadow h-full p-2 overflow-hidden flex flex-col">
+    <div class="bg-white rounded-xl shadow h-full p-4 overflow-hidden flex flex-col">
         <div id='calendar' class="flex-1"></div>
     </div>
   </div>
@@ -78,10 +78,10 @@
     <div class="absolute inset-0 bg-black bg-opacity-40 backdrop-blur-sm modal-backdrop" onclick="closeModal()"></div>
     
     <!-- Content -->
-    <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl w-full max-w-md modal-content overflow-hidden">
+    <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl w-full max-w-2xl modal-content overflow-hidden">
         
         <!-- Modal Header -->
-        <div id="modalHeader" class="p-6 text-white bg-gray-800">
+        <div id="modalHeader" class="p-6 text-white bg-gray-600 transition-colors duration-300">
             <div class="flex justify-between items-start">
                 <div>
                     <span id="modalTypeBadge" class="inline-block px-2 py-1 rounded text-xs font-bold uppercase tracking-wider bg-white bg-opacity-20 mb-2">
@@ -90,50 +90,74 @@
                     <h2 id="modalTitle" class="text-2xl font-bold leading-tight">Title</h2>
                     <p id="modalSubtitle" class="text-sm opacity-90 mt-1">Subtitle</p>
                 </div>
-                <button onclick="closeModal()" class="text-white opacity-70 hover:opacity-100">
+                <button onclick="closeModal()" class="text-white opacity-70 hover:opacity-100 hover:rotate-90 transition-transform duration-200">
                     <i class="fas fa-times text-xl"></i>
                 </button>
             </div>
         </div>
 
         <!-- Modal Body -->
-        <div class="p-6 space-y-4">
+        <div class="p-6 space-y-5 max-h-[60vh] overflow-y-auto">
             
             <!-- Dates -->
             <div class="flex items-center text-gray-600">
-                <i class="far fa-calendar-alt w-6 text-center"></i>
-                <span id="modalDates" class="ml-3 font-medium">Date Range</span>
+                <div class="w-8 flex justify-center"><i class="far fa-calendar-alt text-lg"></i></div>
+                <span id="modalDates" class="font-medium text-lg text-gray-800">Date Range</span>
             </div>
 
             <!-- Reason -->
             <div class="flex items-start text-gray-600">
-                <i class="far fa-comment-alt w-6 text-center mt-1"></i>
-                <span id="modalReason" class="ml-3 italic">Reason text...</span>
+                <div class="w-8 flex justify-center mt-1"><i class="far fa-comment-alt"></i></div>
+                <div class="flex-1">
+                    <p class="text-xs uppercase text-gray-400 font-bold mb-1">Reason</p>
+                    <p id="modalReason" class="text-gray-700 italic bg-gray-50 p-3 rounded-lg border border-gray-100 text-sm">Reason text...</p>
+                </div>
             </div>
             
-            <!-- Affected Classes (Collapsible) -->
-            <div id="modalClassesContainer" class="hidden bg-gray-50 rounded-lg p-3 text-sm">
-                <p class="font-semibold text-gray-500 text-xs uppercase mb-2">Affected Sessions</p>
-                <div id="modalClassesList" class="max-h-32 overflow-y-auto space-y-1 text-gray-700"></div>
+            <!-- Affected Classes (Details Table) -->
+            <div id="modalClassesContainer" class="hidden">
+                 <div class="flex items-start">
+                    <div class="w-8 flex justify-center mt-1"><i class="fas fa-chalkboard-teacher text-gray-400"></i></div>
+                    <div class="flex-1 w-full">
+                        <p class="text-xs uppercase text-gray-400 font-bold mb-2">Affected Sessions</p>
+                        
+                        <!-- Dynamic Table Area -->
+                        <div class="border rounded-lg overflow-hidden relative min-h-[100px]">
+                             <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">Time</th>
+                                        <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class</th>
+                                        <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Teacher</th>
+                                        <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="modalClassesBody" class="bg-white divide-y divide-gray-200 text-sm">
+                                    <!-- Populated via JS -->
+                                </tbody>
+                             </table>
+                             <div id="modalClassesLoading" class="hidden absolute inset-0 bg-white/80 flex items-center justify-center text-sm text-gray-500">
+                                <i class="fas fa-spinner fa-spin mr-2"></i> Syncing Data...
+                             </div>
+                        </div>
+
+                    </div>
+                </div>
             </div>
 
-            <!-- Status -->
-            <div class="flex items-center">
-                <span class="text-sm font-semibold text-gray-500 w-20">Status:</span>
-                <span id="modalStatus" class="font-bold">Pending</span>
+            <!-- Status Footer -->
+            <div class="flex items-center justify-between border-t pt-4 mt-2">
+                 <div class="flex items-center">
+                    <span class="text-sm font-semibold text-gray-500 mr-2">Request Status:</span>
+                    <span id="modalStatus" class="font-bold px-2 py-0.5 rounded text-sm bg-gray-100">Pending</span>
+                 </div>
+                <div id="modalTimestamp" class="text-xs text-gray-400">Requested at...</div>
             </div>
-            
-            <div id="modalTimestamp" class="text-xs text-gray-400 mt-4 text-right">Requested at...</div>
         </div>
 
         <!-- Actions -->
-        <div id="modalActions" class="p-4 bg-gray-50 border-t flex justify-end space-x-3">
-            <button onclick="updateStatus('Rejected')" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-semibold text-sm transition">
-                Reject
-            </button>
-            <button onclick="updateStatus('Approved')" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm shadow-md transition transform hover:-translate-y-0.5">
-                Approve
-            </button>
+        <div id="modalActions" class="p-4 bg-gray-50 border-t flex justify-end space-x-3 hidden">
+            <!-- Buttons injected by JS -->
         </div>
     </div>
   </div>
@@ -147,60 +171,56 @@
 
     let calendar;
     let currentEventId = null;
-    let teacherMap = new Map(); // Store ID -> Name
+    let teacherMap = new Map(); 
     const db = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
 
     // --- Init ---
     document.addEventListener('DOMContentLoaded', async function() {
-        // Load Teachers First
         await loadTeachers();
 
         const calendarEl = document.getElementById('calendar');
         
         calendar = new FullCalendar.Calendar(calendarEl, {
             initialView: 'dayGridMonth',
+            themeSystem: 'standard',
             headerToolbar: {
                 left: 'prev,next today',
                 center: 'title',
                 right: 'dayGridMonth,dayGridWeek,listWeek'
             },
             height: '100%',
+            dayMaxEvents: 3, 
             eventClick: function(info) {
                 openModal(info.event);
             },
             events: fetchEvents,
             eventContent: function(arg) {
-                // Custom Render
-                let content = document.createElement('div');
-                content.className = 'fc-content p-1 truncate';
-                
-                // Title Line (Name or School)
-                let title = document.createElement('div');
-                title.className = 'font-bold text-xs truncate';
-                title.innerText = arg.event.title;
-                
-                // Subtitle Line (Detail Info)
-                let sub = document.createElement('div');
-                sub.className = 'text-[10px] opacity-90 truncate flex items-center space-x-1';
-                
                 const props = arg.event.extendedProps;
                 
-                // Icon Logic
-                if(props.request_category === 'Teacher' || props.school_code === 'N/A') {
-                    // Teacher Leave
-                    let subText = props.leave_type || 'Leave';
-                    if(props.session_count) subText += ` (${props.session_count} classes)`;
-                    sub.innerHTML = `<i class="fas fa-user-clock text-[9px]"></i> <span>${subText}</span>`;
+                // Color/Icon logic
+                let icon = '';
+                if(props.isLeave) {
+                    if((props.leave_type || '').toLowerCase().includes('sick')) icon = '<i class="fas fa-briefcase-medical mr-1 opacity-70"></i>';
+                    else if((props.leave_type || '').toLowerCase().includes('business')) icon = '<i class="fas fa-briefcase mr-1 opacity-70"></i>';
+                    else icon = '<i class="fas fa-user-clock mr-1 opacity-70"></i>';
                 } else {
-                    // School Holiday
-                    let subText = 'Holiday';
-                    if(props.session_count) subText += ` (${props.session_count} classes)`;
-                    sub.innerHTML = `<i class="fas fa-school text-[9px]"></i> <span>${subText}</span>`;
+                    icon = '<i class="fas fa-school mr-1 opacity-70"></i>';
                 }
+                
+                let html = `
+                    <div class="flex items-center overflow-hidden w-full h-full px-1">
+                        <span class="truncate font-semibold text-xs flex-1">
+                            ${icon} ${arg.event.title}
+                        </span>
+                `;
 
-                content.appendChild(title);
-                content.appendChild(sub);
-                return { domNodes: [content] };
+                // Badge (Time Range)
+                if(props.badgeText && props.badgeText !== 'FULL') {
+                    html += `<span class="ml-1 text-[9px] px-1 rounded bg-white/40 font-bold whitespace-nowrap opacity-90">${props.badgeText}</span>`;
+                }
+                
+                html += `</div>`;
+                return { html: html };
             }
         });
 
@@ -210,24 +230,18 @@
     // --- Data Fetching ---
     async function loadTeachers() {
         try {
-            // [FIX] Matches leave.html logic: uses user_id as key, firstname/lastname for display
             const { data, error } = await db.from('dim_user').select('user_id, firstname_en, lastname_en, nickname_en');
             if(error) throw error;
             
             data.forEach(u => {
                 if(u.user_id) {
-                    // Create Name: "John Doe (John)"
                     let name = `${u.firstname_en || ''} ${u.lastname_en || ''}`.trim();
                     if(u.nickname_en) name += ` (${u.nickname_en})`;
-                    
-                    // Key is user_id because that is what leave.html saves into 'teacher_id' column
                     teacherMap.set(String(u.user_id), name);
                 }
             });
-            console.log("Loaded teachers:", teacherMap.size);
-        } catch(e) {
-            console.warn("Failed to load teacher names:", e);
-        }
+            console.log("Loaded teachers names:", teacherMap.size);
+        } catch(e) { console.warn(e); }
     }
 
     async function fetchEvents(fetchInfo, successCallback, failureCallback) {
@@ -239,38 +253,66 @@
 
             if (error) throw error;
 
-            console.log("Fetched Events:", data.length);
             updateStats(data);
 
             const events = data.map(r => {
                 const isLeave = r.request_category === 'Teacher' || r.school_code === 'N/A';
                 const isPending = r.status === 'Pending';
                 
-                // Color Logic
-                let color = isLeave ? '#3B82F6' : '#10B981'; // Blue vs Green
-                if(r.status === 'Rejected') color = '#9CA3AF'; // Gray
-                else if(isPending) color = '#F59E0B'; // Orange override for pending
+                // Colors
+                let bg, border, text;
+                if (r.status === 'Rejected') {
+                    bg = '#f3f4f6'; border = 'transparent'; text = '#9ca3af'; 
+                } else if (isLeave) {
+                    const type = (r.type || '').toLowerCase();
+                    if(type.includes('sick')) { 
+                        bg = '#ffe4e6'; border = '#fda4af'; text = '#be123c'; 
+                    } else if(type.includes('business')) { 
+                        bg = '#dbeafe'; border = '#93c5fd'; text = '#1e40af'; 
+                    } else { 
+                        bg = '#e0e7ff'; border = '#a5b4fc'; text = '#3730a3'; 
+                    }
+                } else {
+                    const sessions = parseSessions(r.affected_sessions);
+                    const isPartial = sessions.length > 0 && sessions.length < 8; 
+                    if(isPartial) {
+                        bg = '#fef3c7'; border = '#fcd34d'; text = '#92400e';
+                    } else {
+                        bg = '#ccfbf1'; border = '#5eead4'; text = '#115e59';
+                    }
+                }
 
-                // Logic to get Name
+                let classNames = [];
+                if(isPending) classNames.push('ring-2', 'ring-orange-400', 'ring-dashed', 'z-10');
+
+                // Name
                 let displayName = r.user_name || "Unknown";
                 if(isLeave && r.teacher_id) {
-                    // Try to map ID to Name
                     const mapped = teacherMap.get(String(r.teacher_id));
                     if(mapped) displayName = mapped;
-                    else displayName = `ID: ${r.teacher_id}`;
+                    else displayName = `${r.user_name || 'Teacher'} (ID:${r.teacher_id})`;
                 } else if (!isLeave) {
                     displayName = r.school_code;
                 }
 
-                // Parse Sessions for Count
-                let sessionCount = 0;
-                if(r.affected_sessions) {
-                     try {
-                        let s = (typeof r.affected_sessions === 'string' && r.affected_sessions.startsWith('[')) 
-                            ? JSON.parse(r.affected_sessions) 
-                            : r.affected_sessions;
-                        sessionCount = Array.isArray(s) ? s.length : 1;
-                     } catch(e) {}
+                // Badge Logic
+                let badge = "";
+                const sessions = parseSessions(r.affected_sessions);
+
+                // Try to find time range
+                if (typeof sessions === 'object' && sessions.startTime) {
+                    badge = `${sessions.startTime.substring(0,5)}-${sessions.endTime.substring(0,5)}`;
+                } 
+                else if (Array.isArray(sessions) && sessions.length > 0) {
+                     const times = sessions.map(s => {
+                        const parts = s.split('_');
+                        return parts.length >= 3 ? parts[2].substring(0,5) : null;
+                     }).filter(Boolean).sort();
+                     
+                     if (times.length > 0) {
+                        if(times.length > 1) badge = `${times[0]}..`; 
+                        else badge = times[0];
+                     }
                 }
 
                 return {
@@ -278,96 +320,183 @@
                     title: displayName,
                     start: r.start_date,
                     end: r.end_date ? new Date(new Date(r.end_date).getTime() + 86400000).toISOString().split('T')[0] : r.start_date,
-                    backgroundColor: color,
-                    borderColor: color,
-                    extendedProps: { ...r, mapped_name: displayName, session_count: sessionCount }
+                    backgroundColor: bg,
+                    borderColor: border,
+                    textColor: text,
+                    classNames: classNames,
+                    extendedProps: { 
+                        ...r, 
+                        mapped_name: displayName, 
+                        badgeText: badge,
+                        leave_type: r.type,
+                        isLeave: isLeave
+                    }
                 };
             });
-
             if(successCallback) successCallback(events);
+        } catch (err) { failureCallback(err); }
+    }
 
-        } catch (err) {
-            console.error(err);
-            if(failureCallback) failureCallback(err);
-        }
+    function parseSessions(raw) {
+        if(!raw) return [];
+        try {
+            if(typeof raw === 'string') {
+               if(raw.startsWith('[')) return JSON.parse(raw);
+               if(raw.startsWith('{')) return JSON.parse(raw);
+               return [raw];
+            }
+            return raw;
+        } catch(e) { return []; }
     }
 
     function updateStats(data) {
         const pending = data.filter(d => d.status === 'Pending').length;
         const currentMonth = new Date().getMonth();
         const approved = data.filter(d => d.status === 'Approved' && new Date(d.start_date).getMonth() === currentMonth).length;
-
         document.getElementById('stat-pending').innerText = pending;
         document.getElementById('stat-approved').innerText = approved;
     }
 
     // --- Modal Logic ---
-    function openModal(event) {
+    async function openModal(event) {
         const p = event.extendedProps;
         currentEventId = p.id;
         
-        // Colors & Type
-        const isLeave = p.request_category === 'Teacher' || p.school_code === 'N/A';
+        // Header Colors
         const header = document.getElementById('modalHeader');
-        
-        let headerColorClass = isLeave ? 'bg-blue-600' : 'bg-green-600';
-        if (p.status === 'Rejected') headerColorClass = 'bg-gray-500';
-        else if (p.status === 'Pending') headerColorClass = 'bg-orange-500';
-        
-        header.className = `p-6 text-white transition-colors duration-300 ${headerColorClass}`;
+        let bgClass = 'bg-gray-600';
+        if(p.status === 'Rejected') bgClass = 'bg-gray-500';
+        else if (p.isLeave) {
+             const type = (p.leave_type || '').toLowerCase();
+             if(type.includes('sick')) bgClass = 'bg-rose-600';
+             else if(type.includes('business')) bgClass = 'bg-blue-600';
+             else bgClass = 'bg-indigo-600';
+        } else {
+             bgClass = p.badgeText ? 'bg-amber-500' : 'bg-teal-600';
+        }
+        header.className = `p-6 text-white transition-colors duration-300 ${bgClass}`;
 
-        // Text Content
-        document.getElementById('modalTypeBadge').innerText = isLeave ? "Leave Request" : "School Holiday";
+        document.getElementById('modalTypeBadge').innerText = p.isLeave ? (p.type || "Teacher Leave") : "School Holiday";
         document.getElementById('modalTitle').innerText = p.mapped_name || p.title; 
         document.getElementById('modalSubtitle').innerText = "Requested by: " + (p.user_name || "Guest");
         
-        // Dates
         let dateText = p.start_date;
         if(p.end_date && p.end_date !== p.start_date) dateText += ` ➔ ${p.end_date}`;
         document.getElementById('modalDates').innerText = dateText;
 
-        // Reason
-        document.getElementById('modalReason').innerText = p.reason || "No reason provided.";
+        const reasonEl = document.getElementById('modalReason');
+        reasonEl.innerText = (p.reason && p.reason !== 'undefined') ? p.reason : "No specific reason provided.";
 
         // Status
         const statusEl = document.getElementById('modalStatus');
         statusEl.innerText = p.status;
-        statusEl.className = `font-bold ${p.status === 'Approved' ? 'text-green-600' : (p.status === 'Rejected' ? 'text-red-500' : 'text-orange-500')}`;
+        statusEl.className = `font-bold px-3 py-1 rounded text-sm border ${
+            p.status === 'Approved' ? 'bg-green-100 text-green-700 border-green-200' : 
+            (p.status === 'Rejected' ? 'bg-red-100 text-red-700 border-red-200' : 
+            'bg-orange-100 text-orange-700 border-orange-200 animate-pulse')}`;
 
-        // Timestamp
-        document.getElementById('modalTimestamp').innerText = "📅 Submitted: " + new Date(p.created_at).toLocaleString();
+        document.getElementById('modalTimestamp').innerText = new Date(p.created_at).toLocaleString('en-GB');
 
-        // Affected Sessions (JSON Parsing)
-        const classContainer = document.getElementById('modalClassesContainer');
-        const classList = document.getElementById('modalClassesList');
-        if(p.affected_sessions) {
-            try {
-                let sessions;
-                if(typeof p.affected_sessions === 'string') {
-                    if(p.affected_sessions.startsWith('[')) sessions = JSON.parse(p.affected_sessions);
-                    else sessions = [p.affected_sessions];
-                } else {
-                    sessions = p.affected_sessions;
-                }
+        // --- ENHANCED SESSIONS LOGIC ---
+        const container = document.getElementById('modalClassesContainer');
+        const tbody = document.getElementById('modalClassesBody');
+        const loading = document.getElementById('modalClassesLoading');
+        
+        // Reset
+        tbody.innerHTML = '';
+        container.classList.add('hidden');
+        loading.classList.add('hidden');
 
-                if(Array.isArray(sessions) && sessions.length > 0) {
-                    classContainer.classList.remove('hidden');
-                    classList.innerHTML = sessions.map(s => 
-                        `<div class="bg-white border p-1 rounded text-xs truncate shadow-sm mb-1 text-gray-600 font-mono">${s}</div>`
-                    ).join('');
-                } else {
-                    classContainer.classList.add('hidden');
-                }
-            } catch(e) {
-                console.warn("JSON Parse error", e);
-                classContainer.classList.add('hidden');
+        const raw = parseSessions(p.affected_sessions);
+
+        // Case 1: Partial Time Range Object
+        if (typeof raw === 'object' && raw.startTime) {
+            container.classList.remove('hidden');
+            tbody.innerHTML = `
+                <tr>
+                    <td class="px-3 py-2 text-sm font-bold text-gray-700">${raw.startTime} - ${raw.endTime}</td>
+                    <td class="px-3 py-2 text-sm text-gray-500 italic" colspan="3">Partial Day Request (Time Block)</td>
+                </tr>`;
+        }
+        // Case 2: Specific Sessions List
+        else if (Array.isArray(raw) && raw.length > 0) {
+            container.classList.remove('hidden');
+            loading.classList.remove('hidden'); 
+
+            // Extract IDs + Fallback Data
+            // Format: "21989_2026-01-15_14:50:00"
+            const sessionInfo = raw.map(s => {
+                const parts = s.split('_');
+                // Safely parse ID
+                const idVal = parseInt(parts[0]);
+                const timeVal = parts.length >= 3 ? parts[2].substring(0,5) : "?";
+                return {
+                    raw: s,
+                    id: isNaN(idVal) ? parts[0] : idVal, // Use Int if possible
+                    time: timeVal
+                };
+            });
+
+            const ids = sessionInfo.map(x => x.id).filter(x => typeof x === 'number');
+
+            if(ids.length > 0) {
+                // Fetch
+                db.from('fact_daily_session')
+                  .select('*') // Select ALL to be safe
+                  .in('session_id', ids)
+                  .then(({ data: sessions, error }) => {
+                       loading.classList.add('hidden');
+                       
+                       // Build Map for quick lookup
+                       const sessionMap = new Map();
+                       if(sessions) sessions.forEach(s => sessionMap.set(s.session_id, s));
+
+                       // Render Rows (preserve order from raw list)
+                       tbody.innerHTML = sessionInfo.map(item => {
+                           const s = sessionMap.get(item.id);
+                           
+                           if(s) {
+                               // Found in DB
+                               const teacherName = teacherMap.get(String(s.actual_teacher_id)) || s.actual_teacher_id || "-";
+                               const timeStr = (s.start_time || "").substring(0,5) + " - " + (s.end_time || "").substring(0,5);
+                               return `
+                                    <tr class="hover:bg-gray-50 border-b last:border-0 transition-colors">
+                                        <td class="px-3 py-2 text-sm font-bold text-blue-600 whitespace-nowrap">${timeStr}</td>
+                                        <td class="px-3 py-2 text-sm text-gray-700 font-medium">${s.class_name || '-'}</td>
+                                        <td class="px-3 py-2 text-sm text-gray-600">${teacherName}</td>
+                                        <td class="px-3 py-2 text-xs text-green-600 font-bold uppercase tracking-wider">${s.status || 'Active'}</td>
+                                    </tr>`;
+                           } else {
+                               // Not found in DB (Fallback)
+                               // Try to make it look decent using extracted time
+                               return `
+                                    <tr class="bg-red-50 border-b last:border-0">
+                                        <td class="px-3 py-2 text-sm font-bold text-gray-400 font-mono">${item.time}</td>
+                                        <td class="px-3 py-2 text-sm text-gray-400 italic" colspan="2">Details not found (ID: ${item.id})</td>
+                                        <td class="px-3 py-2 text-xs text-red-400">Sync Pending?</td>
+                                    </tr>`;
+                           }
+                       }).join('');
+                  });
+            } else {
+                 loading.classList.add('hidden');
+                 // Only strings, no valid IDs?
+                 tbody.innerHTML = raw.map(s => `<tr><td colspan="4" class="px-3 py-2 text-xs text-gray-500">${s}</td></tr>`).join('');
             }
-        } else {
-            classContainer.classList.add('hidden');
+        } 
+        else {
+             // Case 3: Full Day
+             container.classList.remove('hidden');
+             tbody.innerHTML = `<tr><td colspan="4" class="px-3 py-4 text-center text-sm text-gray-500 italic">Full Day Holiday - All Classes Cancelled</td></tr>`;
         }
 
-        // Action Buttons Visibility
+        // Buttons...
         const actionsDiv = document.getElementById('modalActions');
+        actionsDiv.innerHTML = `
+            <button onclick="updateStatus('Rejected')" class="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium text-sm transition">Reject Request</button>
+            <button onclick="updateStatus('Approved')" class="px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm shadow-lg shadow-green-600/20 transition transform active:scale-95">Approve Request</button>
+        `;
+
         if(p.status === 'Pending') {
             actionsDiv.classList.remove('hidden');
             actionsDiv.classList.add('flex');
@@ -376,8 +505,7 @@
             actionsDiv.classList.remove('flex');
         }
 
-        const modal = document.getElementById('eventModal');
-        modal.classList.remove('hidden');
+        document.getElementById('eventModal').classList.remove('hidden');
     }
 
     function closeModal() {
@@ -387,35 +515,14 @@
 
     async function updateStatus(newStatus) {
         if(!currentEventId) return;
-
         const btnDiv = document.getElementById('modalActions');
-        btnDiv.innerHTML = '<span class="text-gray-500 text-sm animate-pulse">Updating...</span>';
-
+        btnDiv.innerHTML = `<span class="text-gray-500 text-sm font-semibold flex items-center"><i class="fas fa-spinner fa-spin mr-2"></i> Processing...</span>`;
         try {
-            const { error } = await db
-                .from('requests_log')
-                .update({ status: newStatus })
-                .eq('id', currentEventId);
-
+            const { error } = await db.from('requests_log').update({ status: newStatus }).eq('id', currentEventId);
             if (error) throw error;
-
             closeModal();
             calendar.refetchEvents(); 
-
-            setTimeout(() => {
-                btnDiv.innerHTML = `
-                    <button onclick="updateStatus('Rejected')" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-semibold text-sm transition">Reject</button>
-                    <button onclick="updateStatus('Approved')" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm shadow-md transition transform hover:-translate-y-0.5">Approve</button>
-                `;
-            }, 500);
-
-        } catch (err) {
-            alert("Update Failed: " + err.message);
-             btnDiv.innerHTML = `
-                <button onclick="updateStatus('Rejected')" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-semibold text-sm transition">Reject</button>
-                <button onclick="updateStatus('Approved')" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm shadow-md transition transform hover:-translate-y-0.5">Approve</button>
-            `;
-        }
+        } catch (err) { alert("Error: " + err.message); }
     }
 </script>
 </body>
