@@ -141,7 +141,8 @@
 
     let calendar;
     let currentEventId = null;
-    const supabase = supa.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+    // Fix: Use global 'supabase' object provided by the CDN, and avoid naming collision
+    const db = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
 
     // --- Init ---
     document.addEventListener('DOMContentLoaded', function() {
@@ -169,7 +170,7 @@
         // FullCalendar calls this. We can ignore arguments and refresh manually too.
         
         try {
-            const { data, error } = await supabase
+            const { data, error } = await db
                 .from('requests_log')
                 .select('*')
                 .order('created_at', { ascending: false });
@@ -321,7 +322,7 @@
         btnDiv.innerHTML = '<span class="text-gray-500 text-sm animate-pulse">Updating...</span>';
 
         try {
-            const { error } = await supabase
+            const { error } = await db
                 .from('requests_log')
                 .update({ status: newStatus })
                 .eq('id', currentEventId);
