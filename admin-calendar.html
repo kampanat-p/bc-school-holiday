@@ -423,26 +423,26 @@
             container.classList.remove('hidden');
             loading.classList.remove('hidden'); 
 
-            // Extract IDs + Fallback Data
-            // Format: "21989_2026-01-15_14:50:00"
+            // Extract IDs directly (User clarified: session_id is the FULL string)
             const sessionInfo = raw.map(s => {
-                const parts = s.split('_');
-                // Safely parse ID
-                const idVal = parseInt(parts[0]);
-                const timeVal = parts.length >= 3 ? parts[2].substring(0,5) : "?";
+                // Heuristic Parsing for Fallback UI only
+                let timeVal = "?";
+                if(typeof s === 'string') {
+                    const parts = s.split('_');
+                    if(parts.length >= 3) timeVal = parts[2].substring(0,5);
+                }
                 return {
-                    raw: s,
-                    id: isNaN(idVal) ? parts[0] : idVal, // Use Int if possible
+                    id: s, // Use full string as ID
                     time: timeVal
                 };
             });
 
-            const ids = sessionInfo.map(x => x.id).filter(x => typeof x === 'number');
+            const ids = sessionInfo.map(x => x.id); // Array of string IDs
 
             if(ids.length > 0) {
                 // Fetch
                 db.from('fact_daily_session')
-                  .select('*') // Select ALL to be safe
+                  .select('*')
                   .in('session_id', ids)
                   .then(({ data: sessions, error }) => {
                        loading.classList.add('hidden');
@@ -453,34 +453,33 @@
 
                        // Render Rows (preserve order from raw list)
                        tbody.innerHTML = sessionInfo.map(item => {
-                           const s = sessionMap.get(item.id);
+                           // Try exact match first
+                           let s = sessionMap.get(item.id);
                            
                            if(s) {
                                // Found in DB
                                const teacherName = teacherMap.get(String(s.actual_teacher_id)) || s.actual_teacher_id || "-";
-                               const timeStr = (s.start_time || "").substring(0,5) + " - " + (s.end_time || "").substring(0,5);
+                               const myTime = (s.start_time || "").substring(0,5) + " - " + (s.end_time || "").substring(0,5);
                                return `
                                     <tr class="hover:bg-gray-50 border-b last:border-0 transition-colors">
-                                        <td class="px-3 py-2 text-sm font-bold text-blue-600 whitespace-nowrap">${timeStr}</td>
+                                        <td class="px-3 py-2 text-sm font-bold text-blue-600 whitespace-nowrap">${myTime}</td>
                                         <td class="px-3 py-2 text-sm text-gray-700 font-medium">${s.class_name || '-'}</td>
                                         <td class="px-3 py-2 text-sm text-gray-600">${teacherName}</td>
                                         <td class="px-3 py-2 text-xs text-green-600 font-bold uppercase tracking-wider">${s.status || 'Active'}</td>
                                     </tr>`;
                            } else {
-                               // Not found in DB (Fallback)
-                               // Try to make it look decent using extracted time
+                               // Fallback
                                return `
                                     <tr class="bg-red-50 border-b last:border-0">
                                         <td class="px-3 py-2 text-sm font-bold text-gray-400 font-mono">${item.time}</td>
-                                        <td class="px-3 py-2 text-sm text-gray-400 italic" colspan="2">Details not found (ID: ${item.id})</td>
-                                        <td class="px-3 py-2 text-xs text-red-400">Sync Pending?</td>
+                                        <td class="px-3 py-2 text-sm text-gray-400 italic" colspan="2">Details not found</td>
+                                        <td class="px-3 py-2 text-xs text-red-400">ID Mismatch</td>
                                     </tr>`;
                            }
                        }).join('');
                   });
             } else {
                  loading.classList.add('hidden');
-                 // Only strings, no valid IDs?
                  tbody.innerHTML = raw.map(s => `<tr><td colspan="4" class="px-3 py-2 text-xs text-gray-500">${s}</td></tr>`).join('');
             }
         } 
