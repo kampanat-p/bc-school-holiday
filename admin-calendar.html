@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Admin Calendar v1.0.2</title>
+  <title>Admin Calendar v1.0.3 (With Alarms)</title>
 
   <!-- Libraries -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -26,7 +26,6 @@
     .fc-daygrid-event { font-size: 0.75rem; border-radius: 4px; padding: 1px;}
     .fc-toolbar-title { font-size: 1.25rem !important; font-weight: 600; }
     .fc-button-primary { background-color: #059669 !important; border-color: #059669 !important; }
-    .fc-button-primary:hover { background-color: #047857 !important; border-color: #047857 !important; }
     .fc-button-active { background-color: #065f46 !important; }
 
     /* Modal Animation */
@@ -34,6 +33,10 @@
     @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     .modal-backdrop { animation: fadeIn 0.15s ease-out; }
     .modal-content { animation: slideUp 0.15s ease-out; }
+    
+    /* Switch Toggle */
+    .toggle-checkbox:checked { right: 0; border-color: #68D391; }
+    .toggle-checkbox:checked + .toggle-label { background-color: #68D391; }
   </style>
 </head>
 <body class="bg-gray-50 h-screen flex flex-col overflow-hidden">
@@ -50,18 +53,27 @@
         </div>
     </div>
 
-    <div class="flex space-x-6">
+    <div class="flex space-x-6 items-center">
+        <!-- Stats -->
         <div class="text-center">
             <p class="text-xs text-gray-400 font-semibold uppercase">Pending</p>
             <p id="stat-pending" class="text-2xl font-bold text-orange-500">0</p>
         </div>
-        <div class="text-center">
+        <div class="text-center mr-4">
             <p class="text-xs text-gray-400 font-semibold uppercase">Approved (Mo.)</p>
             <p id="stat-approved" class="text-2xl font-bold text-green-600">0</p>
         </div>
-        <button onclick="fetchEvents()" class="bg-gray-100 hover:bg-gray-200 text-gray-600 p-2 rounded-full w-10 h-10 flex items-center justify-center transition shadow-sm" title="Refresh Data">
-            <i class="fas fa-sync-alt"></i>
-        </button>
+
+        <!-- Toolbar -->
+        <div class="flex space-x-2 border-l pl-6">
+            <button onclick="openAlarmModal()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 p-2 rounded-full w-10 h-10 flex items-center justify-center transition shadow-sm relative group" title="Notification Settings">
+                <i class="fas fa-bell"></i>
+                <span id="alarm-indicator" class="absolute top-0 right-0 h-3 w-3 bg-red-500 rounded-full border-2 border-white hidden"></span>
+            </button>
+            <button onclick="fetchEvents()" class="bg-gray-100 hover:bg-gray-200 text-gray-600 p-2 rounded-full w-10 h-10 flex items-center justify-center transition shadow-sm" title="Refresh Data">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+        </div>
     </div>
   </header>
 
@@ -74,19 +86,15 @@
 
   <!-- Detail Modal -->
   <div id="eventModal" class="fixed inset-0 z-50 hidden">
-    <!-- Backdrop -->
     <div class="absolute inset-0 bg-black bg-opacity-40 backdrop-blur-sm modal-backdrop" onclick="closeModal()"></div>
     
-    <!-- Content -->
     <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl w-full max-w-2xl modal-content overflow-hidden">
         
         <!-- Modal Header -->
         <div id="modalHeader" class="p-6 text-white bg-gray-600 transition-colors duration-300">
             <div class="flex justify-between items-start">
                 <div>
-                    <span id="modalTypeBadge" class="inline-block px-2 py-1 rounded text-xs font-bold uppercase tracking-wider bg-white bg-opacity-20 mb-2">
-                        Type
-                    </span>
+                    <span id="modalTypeBadge" class="inline-block px-2 py-1 rounded text-xs font-bold uppercase tracking-wider bg-white bg-opacity-20 mb-2">Type</span>
                     <h2 id="modalTitle" class="text-2xl font-bold leading-tight">Title</h2>
                     <p id="modalSubtitle" class="text-sm opacity-90 mt-1">Subtitle</p>
                 </div>
@@ -114,50 +122,81 @@
                 </div>
             </div>
             
-            <!-- Affected Classes (Details Table) -->
+            <!-- Affected Classes -->
             <div id="modalClassesContainer" class="hidden">
                  <div class="flex items-start">
                     <div class="w-8 flex justify-center mt-1"><i class="fas fa-chalkboard-teacher text-gray-400"></i></div>
                     <div class="flex-1 w-full">
                         <p class="text-xs uppercase text-gray-400 font-bold mb-2">Affected Sessions</p>
-                        
-                        <!-- Dynamic Table Area -->
                         <div class="border rounded-lg overflow-hidden relative min-h-[100px]">
                              <table class="min-w-full divide-y divide-gray-200">
                                 <thead class="bg-gray-50">
                                     <tr>
-                                        <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">Time</th>
-                                        <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Class</th>
-                                        <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Teacher</th>
-                                        <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                        <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-24">Time</th>
+                                        <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Class</th>
+                                        <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Teacher</th>
+                                        <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                                     </tr>
                                 </thead>
-                                <tbody id="modalClassesBody" class="bg-white divide-y divide-gray-200 text-sm">
-                                    <!-- Populated via JS -->
-                                </tbody>
+                                <tbody id="modalClassesBody" class="bg-white divide-y divide-gray-200 text-sm"></tbody>
                              </table>
                              <div id="modalClassesLoading" class="hidden absolute inset-0 bg-white/80 flex items-center justify-center text-sm text-gray-500">
                                 <i class="fas fa-spinner fa-spin mr-2"></i> Syncing Data...
                              </div>
                         </div>
-
                     </div>
                 </div>
             </div>
 
-            <!-- Status Footer -->
+            <!-- Free Status Change Dropdown -->
             <div class="flex items-center justify-between border-t pt-4 mt-2">
-                 <div class="flex items-center">
-                    <span class="text-sm font-semibold text-gray-500 mr-2">Request Status:</span>
-                    <span id="modalStatus" class="font-bold px-2 py-0.5 rounded text-sm bg-gray-100">Pending</span>
+                 <div class="flex items-center w-full">
+                    <span class="text-sm font-semibold text-gray-500 mr-3">Status:</span>
+                    <select id="modalStatusSelect" onchange="updateStatus(this.value)" class="flex-1 form-select block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md shadow-sm border bg-white">
+                        <option value="Pending">Pending</option>
+                        <option value="Approved">Approved</option>
+                        <option value="Rejected">Rejected</option>
+                        <option value="Cancelled">Cancelled</option>
+                    </select>
                  </div>
-                <div id="modalTimestamp" class="text-xs text-gray-400">Requested at...</div>
             </div>
         </div>
 
-        <!-- Actions -->
-        <div id="modalActions" class="p-4 bg-gray-50 border-t flex justify-end space-x-3 hidden">
-            <!-- Buttons injected by JS -->
+        <div class="p-4 bg-gray-50 border-t flex justify-end">
+            <button onclick="closeModal()" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 text-sm font-medium text-gray-700">Close</button>
+        </div>
+    </div>
+  </div>
+
+  <!-- Alarm Settings Modal -->
+  <div id="alarmModal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black bg-opacity-40 backdrop-blur-sm modal-backdrop" onclick="closeAlarmModal()"></div>
+    <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl shadow-2xl w-full max-w-sm modal-content">
+        <div class="p-5 border-b bg-indigo-600 text-white rounded-t-xl">
+            <h3 class="font-bold text-lg"><i class="fas fa-bell mr-2"></i> Notification Settings</h3>
+            <p class="text-xs opacity-80">Daily Discord alerts for pending tickets.</p>
+        </div>
+        
+        <div class="p-5">
+            <!-- Add New Alarm -->
+            <div class="flex space-x-2 mb-4">
+                <input type="time" id="newAlarmTime" class="border rounded p-2 flex-1 focus:ring-2 focus:ring-indigo-200 outline-none">
+                <button onclick="addAlarm()" class="bg-indigo-600 text-white px-3 rounded hover:bg-indigo-700 shadow-md"><i class="fas fa-plus"></i></button>
+            </div>
+
+            <!-- Alarm List -->
+            <div class="space-y-3 max-h-60 overflow-y-auto" id="alarmList">
+                <!-- Injected via JS -->
+                 <div class="text-center text-gray-400 text-sm py-4"><i class="fas fa-circle-notch fa-spin"></i> Loading...</div>
+            </div>
+            
+            <p class="text-[10px] text-gray-400 mt-4 italic text-center">
+                * Alarms are universal. Only fires if page/bot is active.
+            </p>
+        </div>
+
+        <div class="p-3 bg-gray-50 text-right rounded-b-xl">
+            <button onclick="closeAlarmModal()" class="text-sm text-gray-600 hover:text-gray-900 font-medium px-3 py-1">Close</button>
         </div>
     </div>
   </div>
@@ -166,20 +205,22 @@
     // --- Config ---
     const CONFIG = {
         SUPABASE_URL: "https://cgznmxcecljfybcgujjb.supabase.co",
-        SUPABASE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ"
+        SUPABASE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ",
+        DISCORD_WEBHOOK: "https://discordapp.com/api/webhooks/1463030732602609665/-V-K56hgPh5mjcaFiFpc_6ZLhoqTceEQzuWXO7k4-0ztIuLXF6lk_TEKX6uIfKXWl5TX"
     };
 
     let calendar;
     let currentEventId = null;
     let teacherMap = new Map(); 
+    let activeAlarms = [];
     const db = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
 
     // --- Init ---
     document.addEventListener('DOMContentLoaded', async function() {
         await loadTeachers();
-
-        const calendarEl = document.getElementById('calendar');
         
+        // Setup Calendar
+        const calendarEl = document.getElementById('calendar');
         calendar = new FullCalendar.Calendar(calendarEl, {
             initialView: 'dayGridMonth',
             themeSystem: 'standard',
@@ -190,129 +231,226 @@
             },
             height: '100%',
             dayMaxEvents: 3, 
-            eventClick: function(info) {
-                openModal(info.event);
-            },
+            eventClick: function(info) { openModal(info.event); },
             events: fetchEvents,
-            eventContent: function(arg) {
-                const props = arg.event.extendedProps;
-                
-                // Color/Icon logic
-                let icon = '';
-                if(props.isLeave) {
-                    if((props.leave_type || '').toLowerCase().includes('sick')) icon = '<i class="fas fa-briefcase-medical mr-1 opacity-70"></i>';
-                    else if((props.leave_type || '').toLowerCase().includes('business')) icon = '<i class="fas fa-briefcase mr-1 opacity-70"></i>';
-                    else icon = '<i class="fas fa-user-clock mr-1 opacity-70"></i>';
-                } else {
-                    icon = '<i class="fas fa-school mr-1 opacity-70"></i>';
-                }
-                
-                let html = `
-                    <div class="flex items-center overflow-hidden w-full h-full px-1">
-                        <span class="truncate font-semibold text-xs flex-1">
-                            ${icon} ${arg.event.title}
-                        </span>
-                `;
-
-                // Badge (Time Range)
-                if(props.badgeText && props.badgeText !== 'FULL') {
-                    html += `<span class="ml-1 text-[9px] px-1 rounded bg-white/40 font-bold whitespace-nowrap opacity-90">${props.badgeText}</span>`;
-                }
-                
-                html += `</div>`;
-                return { html: html };
-            }
+            eventContent: renderEventContent
         });
-
         calendar.render();
+
+        // Setup Alarms
+        setupAlarmSystem();
     });
 
-    // --- Data Fetching ---
+    // --- Alarm System ---
+    async function setupAlarmSystem() {
+        // 1. Load Alarms
+        await fetchAlarms();
+        
+        // 2. Start Polling (Every 30s)
+        setInterval(checkAlarms, 30000); 
+    }
+
+    async function fetchAlarms() {
+        try {
+            const { data, error } = await db.from('admin_alarms').select('*').order('time');
+            if(error) {
+                // If table missing, maybe just warn or handle gracefully
+                console.warn("Alarm table might be missing:", error);
+                activeAlarms = []; 
+                return;
+            }
+            // Logic: Default 3PM
+            const hasDefault = data.find(a => a.time === '15:00');
+            if(!hasDefault && data.length === 0) {
+                // Auto-create default 3:00 PM if DB empty
+                await db.from('admin_alarms').insert({ time: '15:00', label: 'Daily Default' });
+                return fetchAlarms(); // Retry
+            }
+            activeAlarms = data;
+            renderAlarmList();
+        } catch(e) { console.error(e); }
+    }
+
+    function renderAlarmList() {
+        const list = document.getElementById('alarmList');
+        if(activeAlarms.length === 0) {
+            list.innerHTML = `<div class="text-sm text-gray-400 text-center">No active alarms.</div>`;
+            return;
+        }
+        
+        list.innerHTML = activeAlarms.map(a => `
+            <div class="flex items-center justify-between bg-gray-50 p-2 rounded border border-gray-100">
+                <div class="flex items-center">
+                    <span class="font-mono text-lg font-bold text-gray-700">${a.time}</span>
+                    ${a.label ? `<span class="text-xs text-gray-400 ml-2">(${a.label})</span>` : ''}
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button onclick="toggleAlarm(${a.id}, ${!a.is_active})" class="${a.is_active ? 'text-green-500' : 'text-gray-300'} hover:scale-110 transition">
+                        <i class="fas fa-toggle-${a.is_active ? 'on' : 'off'} text-2xl"></i>
+                    </button>
+                    <button onclick="deleteAlarm(${a.id})" class="text-red-400 hover:text-red-600 ml-2 text-sm">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+
+        // Indicator
+        const anyActive = activeAlarms.some(a => a.is_active);
+        const ind = document.getElementById('alarm-indicator');
+        if(ind) {
+             if(anyActive) ind.classList.remove('hidden'); else ind.classList.add('hidden');
+        }
+    }
+
+    async function addAlarm() {
+        const time = document.getElementById('newAlarmTime').value;
+        if(!time) return;
+        
+        await db.from('admin_alarms').insert({ time: time, is_active: true });
+        fetchAlarms();
+    }
+
+    async function deleteAlarm(id) {
+        if(!confirm("Delete this alarm?")) return;
+        await db.from('admin_alarms').delete().eq('id', id);
+        fetchAlarms();
+    }
+
+    async function toggleAlarm(id, newState) {
+        await db.from('admin_alarms').update({ is_active: newState }).eq('id', id);
+        fetchAlarms();
+    }
+
+    function openAlarmModal() { document.getElementById('alarmModal').classList.remove('hidden'); }
+    function closeAlarmModal() { document.getElementById('alarmModal').classList.add('hidden'); }
+
+    // --- Polling Logic ---
+    async function checkAlarms() {
+        const now = new Date();
+        const currentStr = now.toTimeString().substring(0,5); // "HH:MM"
+        
+        // Find matching active alarm
+        const match = activeAlarms.find(a => a.time === currentStr && a.is_active);
+        
+        if(match) {
+            // Check if we already fired this minute? (Simple debounce: check Seconds < 35)
+            // Or just check Pending count
+            const pendingCount = parseInt(document.getElementById('stat-pending').innerText || '0');
+            
+            if(pendingCount > 0) {
+                console.log(`⏰ ALARM: ${currentStr} - Pending: ${pendingCount}. Sending Webhook.`);
+                sendDiscordNotification(pendingCount);
+            }
+        }
+    }
+
+    async function sendDiscordNotification(count) {
+        if(!CONFIG.DISCORD_WEBHOOK || CONFIG.DISCORD_WEBHOOK.includes("REPLACE")) return;
+        
+        // Simple dedupe: Check if we alerted recently in LocalStorage?
+        const lastAlert = localStorage.getItem('last_discord_alert');
+        const nowTs = Date.now();
+        if(lastAlert && (nowTs - parseInt(lastAlert)) < 60000) return; // Ignore if < 1m ago
+
+        const payload = {
+            username: "Braincloud Admin Bot",
+            content: `📢 **Daily Reminder**: There are **${count}** pending ticket(s) waiting for approval in the Dashboard.`,
+            embeds: [{
+                title: "Go to Dashboard",
+                url: window.location.href,
+                color: 15105570 // Orange
+            }]
+        };
+
+        try {
+            await fetch(CONFIG.DISCORD_WEBHOOK, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            localStorage.setItem('last_discord_alert', nowTs.toString());
+        } catch(e) { console.error("Webhook failed", e); }
+    }
+
+    // --- Core Calendar Logic ---
+    
+    function renderEventContent(arg) {
+        const props = arg.event.extendedProps;
+        let icon = '';
+        if(props.isLeave) {
+            if((props.leave_type || '').toLowerCase().includes('sick')) icon = '<i class="fas fa-briefcase-medical mr-1 opacity-70"></i>';
+            else if((props.leave_type || '').toLowerCase().includes('business')) icon = '<i class="fas fa-briefcase mr-1 opacity-70"></i>';
+            else icon = '<i class="fas fa-user-clock mr-1 opacity-70"></i>';
+        } else {
+            icon = '<i class="fas fa-school mr-1 opacity-70"></i>';
+        }
+        
+        let html = `<div class="flex items-center overflow-hidden w-full h-full px-1"><span class="truncate font-semibold text-xs flex-1">${icon} ${arg.event.title}</span>`;
+        if(props.badgeText && props.badgeText !== 'FULL') {
+            html += `<span class="ml-1 text-[9px] px-1 rounded bg-white/40 font-bold whitespace-nowrap opacity-90">${props.badgeText}</span>`;
+        }
+        html += `</div>`;
+        return { html: html };
+    }
+
     async function loadTeachers() {
         try {
-            const { data, error } = await db.from('dim_user').select('user_id, firstname_en, lastname_en, nickname_en');
-            if(error) throw error;
-            
-            data.forEach(u => {
+            const { data } = await db.from('dim_user').select('user_id, firstname_en, lastname_en, nickname_en');
+            if(data) data.forEach(u => {
                 if(u.user_id) {
                     let name = `${u.firstname_en || ''} ${u.lastname_en || ''}`.trim();
                     if(u.nickname_en) name += ` (${u.nickname_en})`;
                     teacherMap.set(String(u.user_id), name);
                 }
             });
-            console.log("Loaded teachers names:", teacherMap.size);
-        } catch(e) { console.warn(e); }
+        } catch(e) {}
     }
 
     async function fetchEvents(fetchInfo, successCallback, failureCallback) {
         try {
-            const { data, error } = await db
-                .from('requests_log')
-                .select('*')
-                .order('created_at', { ascending: false });
-
+            const { data, error } = await db.from('requests_log').select('*').order('created_at', { ascending: false });
             if (error) throw error;
 
             updateStats(data);
-
             const events = data.map(r => {
                 const isLeave = r.request_category === 'Teacher' || r.school_code === 'N/A';
                 const isPending = r.status === 'Pending';
                 
-                // Colors
                 let bg, border, text;
-                if (r.status === 'Rejected') {
-                    bg = '#f3f4f6'; border = 'transparent'; text = '#9ca3af'; 
-                } else if (isLeave) {
+                if (r.status === 'Rejected') { bg = '#f3f4f6'; border = 'transparent'; text = '#9ca3af'; }
+                else if (r.status === 'Cancelled') { bg = '#fef2f2'; border = '#fee2e2'; text = '#991b1b'; } // Add Cancelled style
+                else if (isLeave) {
                     const type = (r.type || '').toLowerCase();
-                    if(type.includes('sick')) { 
-                        bg = '#ffe4e6'; border = '#fda4af'; text = '#be123c'; 
-                    } else if(type.includes('business')) { 
-                        bg = '#dbeafe'; border = '#93c5fd'; text = '#1e40af'; 
-                    } else { 
-                        bg = '#e0e7ff'; border = '#a5b4fc'; text = '#3730a3'; 
-                    }
+                    if(type.includes('sick')) { bg = '#ffe4e6'; border = '#fda4af'; text = '#be123c'; }
+                    else if(type.includes('business')) { bg = '#dbeafe'; border = '#93c5fd'; text = '#1e40af'; }
+                    else { bg = '#e0e7ff'; border = '#a5b4fc'; text = '#3730a3'; }
                 } else {
                     const sessions = parseSessions(r.affected_sessions);
                     const isPartial = sessions.length > 0 && sessions.length < 8; 
-                    if(isPartial) {
-                        bg = '#fef3c7'; border = '#fcd34d'; text = '#92400e';
-                    } else {
-                        bg = '#ccfbf1'; border = '#5eead4'; text = '#115e59';
-                    }
+                    if(isPartial) { bg = '#fef3c7'; border = '#fcd34d'; text = '#92400e'; }
+                    else { bg = '#ccfbf1'; border = '#5eead4'; text = '#115e59'; }
                 }
 
                 let classNames = [];
                 if(isPending) classNames.push('ring-2', 'ring-orange-400', 'ring-dashed', 'z-10');
 
-                // Name
                 let displayName = r.user_name || "Unknown";
                 if(isLeave && r.teacher_id) {
                     const mapped = teacherMap.get(String(r.teacher_id));
-                    if(mapped) displayName = mapped;
-                    else displayName = `${r.user_name || 'Teacher'} (ID:${r.teacher_id})`;
-                } else if (!isLeave) {
-                    displayName = r.school_code;
-                }
+                    displayName = mapped || `${r.user_name || 'Teacher'} (${r.teacher_id})`;
+                } else if (!isLeave) displayName = r.school_code;
 
                 // Badge Logic
                 let badge = "";
                 const sessions = parseSessions(r.affected_sessions);
-
-                // Try to find time range
-                if (typeof sessions === 'object' && sessions.startTime) {
-                    badge = `${sessions.startTime.substring(0,5)}-${sessions.endTime.substring(0,5)}`;
-                } 
+                if (typeof sessions === 'object' && sessions.startTime) badge = `${sessions.startTime.substring(0,5)}-${sessions.endTime.substring(0,5)}`;
                 else if (Array.isArray(sessions) && sessions.length > 0) {
                      const times = sessions.map(s => {
                         const parts = s.split('_');
                         return parts.length >= 3 ? parts[2].substring(0,5) : null;
                      }).filter(Boolean).sort();
-                     
-                     if (times.length > 0) {
-                        if(times.length > 1) badge = `${times[0]}..`; 
-                        else badge = times[0];
-                     }
+                     if (times.length > 0) badge = (times.length > 1) ? `${times[0]}..` : times[0];
                 }
 
                 return {
@@ -320,17 +458,8 @@
                     title: displayName,
                     start: r.start_date,
                     end: r.end_date ? new Date(new Date(r.end_date).getTime() + 86400000).toISOString().split('T')[0] : r.start_date,
-                    backgroundColor: bg,
-                    borderColor: border,
-                    textColor: text,
-                    classNames: classNames,
-                    extendedProps: { 
-                        ...r, 
-                        mapped_name: displayName, 
-                        badgeText: badge,
-                        leave_type: r.type,
-                        isLeave: isLeave
-                    }
+                    backgroundColor: bg, borderColor: border, textColor: text, classNames: classNames,
+                    extendedProps: { ...r, mapped_name: displayName, badgeText: badge, leave_type: r.type, isLeave: isLeave }
                 };
             });
             if(successCallback) successCallback(events);
@@ -339,189 +468,108 @@
 
     function parseSessions(raw) {
         if(!raw) return [];
-        try {
-            if(typeof raw === 'string') {
-               if(raw.startsWith('[')) return JSON.parse(raw);
-               if(raw.startsWith('{')) return JSON.parse(raw);
-               return [raw];
-            }
-            return raw;
-        } catch(e) { return []; }
+        try { if(typeof raw === 'string') { if(raw.startsWith('[')) return JSON.parse(raw); if(raw.startsWith('{')) return JSON.parse(raw); return [raw]; } return raw; } catch(e) { return []; }
     }
 
     function updateStats(data) {
-        const pending = data.filter(d => d.status === 'Pending').length;
-        const currentMonth = new Date().getMonth();
-        const approved = data.filter(d => d.status === 'Approved' && new Date(d.start_date).getMonth() === currentMonth).length;
-        document.getElementById('stat-pending').innerText = pending;
-        document.getElementById('stat-approved').innerText = approved;
+        document.getElementById('stat-pending').innerText = data.filter(d => d.status === 'Pending').length;
+        document.getElementById('stat-approved').innerText = data.filter(d => d.status === 'Approved' && new Date(d.start_date).getMonth() === new Date().getMonth()).length;
     }
 
-    // --- Modal Logic ---
     async function openModal(event) {
         const p = event.extendedProps;
         currentEventId = p.id;
         
-        // Header Colors
+        // Dynamic Header
         const header = document.getElementById('modalHeader');
         let bgClass = 'bg-gray-600';
         if(p.status === 'Rejected') bgClass = 'bg-gray-500';
+        else if(p.status === 'Cancelled') bgClass = 'bg-red-800'; // Dark red for cancelled
         else if (p.isLeave) {
              const type = (p.leave_type || '').toLowerCase();
-             if(type.includes('sick')) bgClass = 'bg-rose-600';
-             else if(type.includes('business')) bgClass = 'bg-blue-600';
-             else bgClass = 'bg-indigo-600';
-        } else {
-             bgClass = p.badgeText ? 'bg-amber-500' : 'bg-teal-600';
-        }
+             if(type.includes('sick')) bgClass = 'bg-rose-600'; else if(type.includes('business')) bgClass = 'bg-blue-600'; else bgClass = 'bg-indigo-600';
+        } else bgClass = p.badgeText ? 'bg-amber-500' : 'bg-teal-600';
         header.className = `p-6 text-white transition-colors duration-300 ${bgClass}`;
 
         document.getElementById('modalTypeBadge').innerText = p.isLeave ? (p.type || "Teacher Leave") : "School Holiday";
         document.getElementById('modalTitle').innerText = p.mapped_name || p.title; 
         document.getElementById('modalSubtitle').innerText = "Requested by: " + (p.user_name || "Guest");
         
-        let dateText = p.start_date;
-        if(p.end_date && p.end_date !== p.start_date) dateText += ` ➔ ${p.end_date}`;
+        let dateText = p.start_date; if(p.end_date && p.end_date !== p.start_date) dateText += ` ➔ ${p.end_date}`;
         document.getElementById('modalDates').innerText = dateText;
+        document.getElementById('modalReason').innerText = (p.reason && p.reason !== 'undefined') ? p.reason : "No specific reason provided.";
 
-        const reasonEl = document.getElementById('modalReason');
-        reasonEl.innerText = (p.reason && p.reason !== 'undefined') ? p.reason : "No specific reason provided.";
-
-        // Status
-        const statusEl = document.getElementById('modalStatus');
-        statusEl.innerText = p.status;
-        statusEl.className = `font-bold px-3 py-1 rounded text-sm border ${
-            p.status === 'Approved' ? 'bg-green-100 text-green-700 border-green-200' : 
-            (p.status === 'Rejected' ? 'bg-red-100 text-red-700 border-red-200' : 
-            'bg-orange-100 text-orange-700 border-orange-200 animate-pulse')}`;
-
-        document.getElementById('modalTimestamp').innerText = new Date(p.created_at).toLocaleString('en-GB');
-
-        // --- ENHANCED SESSIONS LOGIC ---
+        // --- Session Details ---
         const container = document.getElementById('modalClassesContainer');
         const tbody = document.getElementById('modalClassesBody');
         const loading = document.getElementById('modalClassesLoading');
-        
-        // Reset
-        tbody.innerHTML = '';
-        container.classList.add('hidden');
-        loading.classList.add('hidden');
+        tbody.innerHTML = ''; container.classList.add('hidden'); loading.classList.add('hidden');
 
         const raw = parseSessions(p.affected_sessions);
-
-        // Case 1: Partial Time Range Object
         if (typeof raw === 'object' && raw.startTime) {
             container.classList.remove('hidden');
-            tbody.innerHTML = `
-                <tr>
-                    <td class="px-3 py-2 text-sm font-bold text-gray-700">${raw.startTime} - ${raw.endTime}</td>
-                    <td class="px-3 py-2 text-sm text-gray-500 italic" colspan="3">Partial Day Request (Time Block)</td>
-                </tr>`;
-        }
-        // Case 2: Specific Sessions List
-        else if (Array.isArray(raw) && raw.length > 0) {
+            tbody.innerHTML = `<tr><td class="px-3 py-2 text-sm font-bold text-gray-700">${raw.startTime} - ${raw.endTime}</td><td class="px-3 py-2 text-sm text-gray-500 italic" colspan="3">Partial Day Request</td></tr>`;
+        } else if (Array.isArray(raw) && raw.length > 0) {
             container.classList.remove('hidden');
-            loading.classList.remove('hidden'); 
-
-            // Extract IDs directly (User clarified: session_id is the FULL string)
+            loading.classList.remove('hidden');
+            
+            // Display Logic
             const sessionInfo = raw.map(s => {
-                // Heuristic Parsing for Fallback UI only
-                let timeVal = "?";
-                if(typeof s === 'string') {
-                    const parts = s.split('_');
-                    if(parts.length >= 3) timeVal = parts[2].substring(0,5);
-                }
-                return {
-                    id: s, // Use full string as ID
-                    time: timeVal
-                };
+                let time = "?"; if(typeof s === 'string' && s.split('_').length >= 3) time = s.split('_')[2].substring(0,5);
+                return { id: s, time: time };
             });
 
-            const ids = sessionInfo.map(x => x.id); // Array of string IDs
+            // Fetch Data
+            db.from('fact_daily_session').select('*').in('session_id', sessionInfo.map(x=>x.id)).then(({ data: sessions }) => {
+                loading.classList.add('hidden');
+                const sessionMap = new Map();
+                if(sessions) sessions.forEach(s => sessionMap.set(s.session_id, s));
 
-            if(ids.length > 0) {
-                // Fetch
-                db.from('fact_daily_session')
-                  .select('*')
-                  .in('session_id', ids)
-                  .then(({ data: sessions, error }) => {
-                       loading.classList.add('hidden');
-                       
-                       // Build Map for quick lookup
-                       const sessionMap = new Map();
-                       if(sessions) sessions.forEach(s => sessionMap.set(s.session_id, s));
-
-                       // Render Rows (preserve order from raw list)
-                       tbody.innerHTML = sessionInfo.map(item => {
-                           // Try exact match first
-                           let s = sessionMap.get(item.id);
-                           
-                           if(s) {
-                               // Found in DB
-                               const teacherName = teacherMap.get(String(s.actual_teacher_id)) || s.actual_teacher_id || "-";
-                               const myTime = (s.start_time || "").substring(0,5) + " - " + (s.end_time || "").substring(0,5);
-                               return `
-                                    <tr class="hover:bg-gray-50 border-b last:border-0 transition-colors">
-                                        <td class="px-3 py-2 text-sm font-bold text-blue-600 whitespace-nowrap">${myTime}</td>
-                                        <td class="px-3 py-2 text-sm text-gray-700 font-medium">${s.class_name || '-'}</td>
-                                        <td class="px-3 py-2 text-sm text-gray-600">${teacherName}</td>
-                                        <td class="px-3 py-2 text-xs text-green-600 font-bold uppercase tracking-wider">${s.status || 'Active'}</td>
-                                    </tr>`;
-                           } else {
-                               // Fallback
-                               return `
-                                    <tr class="bg-red-50 border-b last:border-0">
-                                        <td class="px-3 py-2 text-sm font-bold text-gray-400 font-mono">${item.time}</td>
-                                        <td class="px-3 py-2 text-sm text-gray-400 italic" colspan="2">Details not found</td>
-                                        <td class="px-3 py-2 text-xs text-red-400">ID Mismatch</td>
-                                    </tr>`;
-                           }
-                       }).join('');
-                  });
-            } else {
-                 loading.classList.add('hidden');
-                 tbody.innerHTML = raw.map(s => `<tr><td colspan="4" class="px-3 py-2 text-xs text-gray-500">${s}</td></tr>`).join('');
-            }
-        } 
-        else {
-             // Case 3: Full Day
-             container.classList.remove('hidden');
-             tbody.innerHTML = `<tr><td colspan="4" class="px-3 py-4 text-center text-sm text-gray-500 italic">Full Day Holiday - All Classes Cancelled</td></tr>`;
-        }
-
-        // Buttons...
-        const actionsDiv = document.getElementById('modalActions');
-        actionsDiv.innerHTML = `
-            <button onclick="updateStatus('Rejected')" class="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium text-sm transition">Reject Request</button>
-            <button onclick="updateStatus('Approved')" class="px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm shadow-lg shadow-green-600/20 transition transform active:scale-95">Approve Request</button>
-        `;
-
-        if(p.status === 'Pending') {
-            actionsDiv.classList.remove('hidden');
-            actionsDiv.classList.add('flex');
+                tbody.innerHTML = sessionInfo.map(item => {
+                    const s = sessionMap.get(item.id);
+                    if(s) {
+                        const teacherName = teacherMap.get(String(s.actual_teacher_id)) || s.actual_teacher_id || "-";
+                        return `<tr class="hover:bg-gray-50 border-b">
+                            <td class="px-3 py-2 text-sm font-bold text-blue-600 whitespace-nowrap">${(s.start_time||'').substring(0,5)} - ${(s.end_time||'').substring(0,5)}</td>
+                            <td class="px-3 py-2 text-sm text-gray-700">${s.class_name || '-'}</td>
+                            <td class="px-3 py-2 text-sm text-gray-600">${teacherName}</td>
+                            <td class="px-3 py-2 text-xs text-green-600 font-bold uppercase">${s.status || 'Active'}</td>
+                        </tr>`;
+                    }
+                    return `<tr class="bg-red-50 border-b"><td class="px-3 py-2 text-sm font-bold text-gray-400 font-mono">${item.time}</td><td class="px-3 py-2 text-sm text-gray-400 italic" colspan="3">Details not found</td></tr>`;
+                }).join('');
+            });
         } else {
-            actionsDiv.classList.add('hidden');
-            actionsDiv.classList.remove('flex');
+             container.classList.remove('hidden'); tbody.innerHTML = `<tr><td colspan="4" class="px-3 py-4 text-center text-sm text-gray-500 italic">Full Day Holiday</td></tr>`;
         }
+
+        // --- Status Dropdown ---
+        const select = document.getElementById('modalStatusSelect');
+        select.value = p.status; // Set current status
+        
+        // Colorize Select
+        const updateSelectColor = (val) => {
+            select.className = "flex-1 form-select block w-full pl-3 pr-10 py-2 text-base sm:text-sm rounded-md shadow-sm border focus:outline-none transition-colors duration-300 ";
+            if(val === 'Approved') select.classList.add('bg-green-50', 'text-green-700', 'border-green-300');
+            else if(val === 'Rejected') select.classList.add('bg-gray-100', 'text-gray-500', 'border-gray-300');
+            else if(val === 'Cancelled') select.classList.add('bg-red-50', 'text-red-700', 'border-red-300');
+            else select.classList.add('bg-orange-50', 'text-orange-700', 'border-orange-300');
+        }
+        updateSelectColor(p.status);
+        select.onchange = (e) => { updateStatus(e.target.value); updateSelectColor(e.target.value); };
 
         document.getElementById('eventModal').classList.remove('hidden');
     }
 
-    function closeModal() {
-        document.getElementById('eventModal').classList.add('hidden');
-        currentEventId = null;
-    }
+    function closeModal() { document.getElementById('eventModal').classList.add('hidden'); currentEventId = null; }
 
     async function updateStatus(newStatus) {
         if(!currentEventId) return;
-        const btnDiv = document.getElementById('modalActions');
-        btnDiv.innerHTML = `<span class="text-gray-500 text-sm font-semibold flex items-center"><i class="fas fa-spinner fa-spin mr-2"></i> Processing...</span>`;
         try {
             const { error } = await db.from('requests_log').update({ status: newStatus }).eq('id', currentEventId);
             if (error) throw error;
-            closeModal();
-            calendar.refetchEvents(); 
-        } catch (err) { alert("Error: " + err.message); }
+            fetchEvents(); // Refresh in background
+        } catch (err) { alert("Error updating: " + err.message); }
     }
 </script>
 </body>
