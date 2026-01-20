@@ -1,4 +1,3 @@
-// sync-schedule.js
 const axios = require('axios');
 const { wrapper } = require('axios-cookiejar-support');
 const { CookieJar } = require('tough-cookie');
@@ -35,17 +34,31 @@ async function main() {
         await loginToBraincloud();
         console.log("✅ Login Successful!");
 
-        // 2. Determine Date Range (Default: Today in Bangkok)
+        // 2. Load Mappings Once (Optimization)
+        const { userMap, schoolMap } = await loadMappings();
+
+        // 3. Loop: Today + 7 Future Days
         // [FIX] Force Asia/Bangkok Timezone
         const bkkTime = new Date().toLocaleString("en-US", { timeZone: "Asia/Bangkok" });
-        const today = new Date(bkkTime);
-        console.log(`🕒 Server (UTC): ${new Date().toISOString()} | 🌏 BKK Date: ${today.toDateString()}`);
+        const startDay = new Date(bkkTime);
+        const loopDays = 7; // Today + 7 days = 8 days total
 
-        await processSync(today);
+        console.log(`🕒 Server (UTC): ${new Date().toISOString()} | 🌏 BKK Date: ${startDay.toDateString()}`);
+        console.log(`🔄 Starting Sync Loop (Today + ${loopDays} Future Days)...`);
 
-        // Example: If you want to sync tomorrow as well
-        // const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
-        // await processSync(tomorrow);
+        // Loop for 8 days total (0 to 7)
+        for (let i = 0; i <= loopDays; i++) {
+            const targetDate = new Date(startDay);
+            targetDate.setDate(startDay.getDate() + i);
+
+            console.log(`\n--- [Day ${i+1}/${loopDays+1}] Processing ${targetDate.toDateString()} ---`);
+            await processSync(targetDate, userMap, schoolMap);
+            
+            // Polite delay to avoid rate limiting
+            if (i < loopDays) await new Promise(r => setTimeout(r, 1000));
+        }
+
+        console.log("\n🎉 All Syncs Complete!");
 
     } catch (error) {
         console.error("❌ Fatal Error:", error.message);
@@ -97,9 +110,8 @@ function formatBCDate(date) {
     return `${d}-${m}-${y}`;
 }
 
-async function processSync(targetDate) {
-    // --- PRE-FETCH 1: Get User Mapping (Braincloud ID -> User ID) ---
-    console.log("🔄 Loading Teacher Map...");
+async function loadMappings() {
+    console.log("🔄 Loading Teacher Map (Global)...");
     const { data: users, error: userError } = await supabase
         .from('dim_user')
         .select('user_id, braincloud_id');
@@ -112,10 +124,9 @@ async function processSync(targetDate) {
             if (u.braincloud_id) userMap.set(String(u.braincloud_id), u.user_id);
         });
     }
-    console.log(`✅ Loaded ${userMap.size} teachers for ID translation.`);
+    console.log(`✅ Loaded ${userMap.size} teachers.`);
 
-    // --- PRE-FETCH 2: Get School Mapping (School Code -> School ID) ---
-    console.log("🏫 Loading School Map...");
+    console.log("🏫 Loading School Map (Global)...");
     const { data: schools, error: schoolError } = await supabase
         .from('dim_school')
         .select('school_id, school_code');
@@ -128,9 +139,12 @@ async function processSync(targetDate) {
             if (s.school_code) schoolMap.set(String(s.school_code).toUpperCase(), s.school_id);
         });
     }
-    console.log(`✅ Loaded ${schoolMap.size} schools for ID translation.`);
+    console.log(`✅ Loaded ${schoolMap.size} schools.`);
 
+    return { userMap, schoolMap };
+}
 
+async function processSync(targetDate, userMap, schoolMap) {
     const dbDateStr = formatDate(targetDate);
     const urlDateStr = formatBCDate(targetDate);
 
@@ -232,17 +246,21 @@ async function processSync(targetDate) {
             if (status === "Cancelled (School)") {
                 if (isJustCancelled) {
                     if (cancelledAt) {
-                        // Construct BKK ISO strings for accurate diff using Node's limited Date parsing
-                        // Session: YYYY-MM-DD + T + HH:mm:00 + 07:00
-                        const sessionIso = `${dbDateStr}T${s.start_time}:00+07:00`;
-                        const sessionTs = new Date(sessionIso).getTime();
-                        const cancelTs = new Date(cancelledAt).getTime();
-                        
-                        // Only calculate if we have valid timestamps
-                        if(!isNaN(sessionTs) && !isNaN(cancelTs)) {
-                            const diffHrs = (sessionTs - cancelTs) / (3600000); // ms -> hours
-                            if (diffHrs < 3) isPayable = true;
-                            console.log(`⏱ Watchdog: ${session_id} Cancelled @ ${cancelledAt}. Diff: ${diffHrs.toFixed(2)}h. Payable: ${isPayable}`);
+                        try {
+                            // Construct BKK ISO strings for accurate diff using Node's limited Date parsing
+                            // Session: YYYY-MM-DD + T + HH:mm:00 + 07:00
+                            const sessionIso = `${dbDateStr}T${s.start_time}:00+07:00`;
+                            const sessionTs = new Date(sessionIso).getTime();
+                            const cancelTs = new Date(cancelledAt).getTime();
+                            
+                            // Only calculate if we have valid timestamps
+                            if(!isNaN(sessionTs) && !isNaN(cancelTs)) {
+                                const diffHrs = (sessionTs - cancelTs) / (3600000); // ms -> hours
+                                if (diffHrs < 3) isPayable = true;
+                                console.log(`⏱ Watchdog: ${session_id} Cancelled @ ${cancelledAt}. Diff: ${diffHrs.toFixed(2)}h. Payable: ${isPayable}`);
+                            }
+                        } catch (e) {
+                             console.warn("Date parsing error in Watchdog", e);
                         }
                     }
                 } else {
