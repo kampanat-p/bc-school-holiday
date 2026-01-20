@@ -585,15 +585,21 @@
         
         // --- Simple DB Verification (Teacher Only) ---
         const dbStat = document.getElementById('dbStatusContainer');
-        const dbText = document.getElementById('dbStatusText');
-        const dbCoverage = document.getElementById('coverageSummary');
         const container = document.getElementById('modalClassesContainer');
         const tbody = document.getElementById('modalClassesBody');
         const loading = document.getElementById('modalClassesLoading');
         
-        // Reset UI
+        // Robust Reset: Always restore "Clean" state first to fix destruction
+        dbStat.innerHTML = `
+             <div class="w-8 flex justify-center mt-1"><i class="fas fa-database text-blue-500"></i></div>
+             <div class="flex-1 bg-blue-50 border border-blue-100 rounded-md p-2 text-blue-800">
+                 <span class="font-bold">Database Record Found:</span> <span id="dbStatusText">Checking...</span>
+                 <div id="coverageSummary" class="mt-1 pt-1 border-t border-blue-200 text-xs font-semibold hidden">
+                     Checking coverage...
+                 </div>
+             </div>
+        `;
         dbStat.className = "hidden flex items-start text-sm";
-        dbCoverage.classList.add('hidden');
         tbody.innerHTML = ''; container.classList.add('hidden'); loading.classList.add('hidden');
 
         // Main Logic
@@ -607,14 +613,15 @@
              
              if(data && data.length > 0) {
                 dbStat.className = "flex items-start text-sm mt-2"; 
-                // Summarize
+                // Summarize using new references
                 const types = [...new Set(data.map(u => u.unavailability_type || 'Unspecified'))].join(', ');
-                dbText.innerText = `Found ${data.length} record(s). Type: ${types}`;
+                document.getElementById('dbStatusText').innerText = `Found ${data.length} record(s). Type: ${types}`;
              } else {
                 dbStat.className = "flex items-start text-sm mt-2 opacity-75"; 
                 dbStat.innerHTML = `<div class="w-8 flex justify-center mt-1"><i class="fas fa-exclamation-circle text-orange-400"></i></div><div class="flex-1 bg-orange-50 border border-orange-100 rounded-md p-2 text-orange-700 italic">No official 'unavailability' record found for these dates. <br><span class="text-xs not-italic text-gray-500">Checked range: ${p.start_date} to ${p.end_date || p.start_date}</span></div>`;
              }
         }
+
 
         // 2. Load Sessions & Check Coverage
         // Headers Update
@@ -693,14 +700,15 @@
             }).join('');
             
             // Show Summary if DB Record Exists
-            if(!dbStat.className.includes('hidden') && totalCount > 0) {
-                 dbCoverage.classList.remove('hidden');
+            const dbCovRef = document.getElementById('coverageSummary');
+            if(dbCovRef && !dbStat.className.includes('hidden') && totalCount > 0) {
+                 dbCovRef.classList.remove('hidden');
                  if(coveredCount === totalCount) {
-                     dbCoverage.className = "mt-1 pt-1 border-t border-blue-200 text-xs font-bold text-teal-600 flex items-center";
-                     dbCoverage.innerHTML = `<i class="fas fa-check-circle mr-1"></i> Operations Complete! All ${totalCount} classes are covered/cancelled.`;
+                     dbCovRef.className = "mt-1 pt-1 border-t border-blue-200 text-xs font-bold text-teal-600 flex items-center";
+                     dbCovRef.innerHTML = `<i class="fas fa-check-circle mr-1"></i> Operations Complete! All ${totalCount} classes are covered/cancelled.`;
                  } else {
-                     dbCoverage.className = "mt-1 pt-1 border-t border-blue-200 text-xs font-bold text-orange-600 flex items-center";
-                     dbCoverage.innerHTML = `<i class="fas fa-exclamation-triangle mr-1"></i> Attention: Only ${coveredCount}/${totalCount} classes are covered.`;
+                     dbCovRef.className = "mt-1 pt-1 border-t border-blue-200 text-xs font-bold text-orange-600 flex items-center";
+                     dbCovRef.innerHTML = `<i class="fas fa-exclamation-triangle mr-1"></i> Attention: Only ${coveredCount}/${totalCount} classes are covered.`;
                  }
             }
 
