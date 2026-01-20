@@ -210,15 +210,18 @@
     // --- Data Fetching ---
     async function loadTeachers() {
         try {
-            const { data, error } = await db.from('dim_user').select('braincloud_id, fullname_en, nickname_en');
+            // [FIX] Matches leave.html logic: uses user_id as key, firstname/lastname for display
+            const { data, error } = await db.from('dim_user').select('user_id, firstname_en, lastname_en, nickname_en');
             if(error) throw error;
             
             data.forEach(u => {
-                if(u.braincloud_id) {
+                if(u.user_id) {
                     // Create Name: "John Doe (John)"
-                    let name = u.fullname_en || "Unknown";
+                    let name = `${u.firstname_en || ''} ${u.lastname_en || ''}`.trim();
                     if(u.nickname_en) name += ` (${u.nickname_en})`;
-                    teacherMap.set(String(u.braincloud_id), name);
+                    
+                    // Key is user_id because that is what leave.html saves into 'teacher_id' column
+                    teacherMap.set(String(u.user_id), name);
                 }
             });
             console.log("Loaded teachers:", teacherMap.size);
