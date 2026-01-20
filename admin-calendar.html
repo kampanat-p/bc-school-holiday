@@ -577,7 +577,7 @@
         document.getElementById('modalDates').innerText = dateText;
         document.getElementById('modalReason').innerText = (p.reason && p.reason !== 'undefined') ? p.reason : "No specific reason provided.";
         
-        // --- Smart DB Verification (Teacher Only) ---
+        // --- Simple DB Verification (Teacher Only) ---
         const dbStat = document.getElementById('dbStatusContainer');
         const dbText = document.getElementById('dbStatusText');
         const container = document.getElementById('modalClassesContainer');
@@ -590,7 +590,6 @@
 
         // Main Logic
         // 1. If Teacher Leave, check Reference Table
-        let unavailabilityRecords = [];
         if(p.isLeave && p.teacher_id) {
              const { data } = await db.from('fact_teacher_unavailability')
                .select('*')
@@ -598,13 +597,11 @@
                .lte('start_date', p.end_date || p.start_date) // Fix: use start_date/end_date keys
                .gte('end_date', p.start_date);
              
-             unavailabilityRecords = data || [];
-
-             if(unavailabilityRecords.length > 0) {
+             if(data && data.length > 0) {
                 dbStat.className = "flex items-start text-sm mt-2"; 
                 // Summarize
-                const types = [...new Set(unavailabilityRecords.map(u => u.unavailability_type || 'Unspecified'))].join(', ');
-                dbText.innerText = `Found ${unavailabilityRecords.length} record(s). Type: ${types}`;
+                const types = [...new Set(data.map(u => u.unavailability_type || 'Unspecified'))].join(', ');
+                dbText.innerText = `Found ${data.length} record(s). Type: ${types}`;
              } else {
                 dbStat.className = "flex items-start text-sm mt-2 opacity-75"; 
                 dbStat.innerHTML = `<div class="w-8 flex justify-center mt-1"><i class="fas fa-exclamation-circle text-orange-400"></i></div><div class="flex-1 bg-orange-50 border border-orange-100 rounded-md p-2 text-orange-700 italic">No official 'unavailability' record found for these dates. <br><span class="text-xs not-italic text-gray-500">Checked range: ${p.start_date} to ${p.end_date || p.start_date}</span></div>`;
@@ -618,7 +615,7 @@
             <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-24">Time</th>
             <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Class</th>
             <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Teacher / Status</th>
-            <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Admin / DB Check</th>
+            <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Operations Check</th>
         `;
 
         const raw = parseSessions(p.affected_sessions);
@@ -653,36 +650,14 @@
                     if (s.status === 'Cancelled') statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700">Cancelled</span>`;
                     
                     // --- Admin Coverage Check ---
-                    // 1. Is the class physically covered?
+                    // Simply checking if the teacher is substituted
                     let coverageHtml = '';
                     if (s.status === 'Cancelled') {
-                            coverageHtml += `<div class="text-gray-400 text-xs mb-1"><i class="fas fa-ban"></i> Class Cancelled</div>`;
+                            coverageHtml = `<div class="text-gray-400 text-xs mb-1"><i class="fas fa-ban"></i> Class Cancelled</div>`;
                     } else if (currentTeacherId && currentTeacherId !== originalTeacherId && currentTeacherId !== 'undefined') {
-                            coverageHtml += `<div class="text-teal-600 text-xs font-bold mb-1"><i class="fas fa-user-check"></i> Covered by ${teacherName}</div>`;
+                            coverageHtml = `<div class="text-teal-600 text-xs font-bold mb-1"><i class="fas fa-user-check"></i> Covered by ${teacherName}</div>`;
                     } else {
-                            coverageHtml += `<div class="text-xs text-orange-600 font-bold mb-1"><i class="fas fa-user-times"></i> Not Covered</div>`;
-                    }
-
-                    // 2. Is it DB Record covered? (Time Overlap)
-                    // Check if S.start_time / S.end_time falls inside ANY unavailability record
-                    if(p.isLeave && unavailabilityRecords.length > 0) {
-                        const sStart = s.start_time; // HH:mm:ss
-                        const sEnd = s.end_time;
-                        // Simple string comparison for time usually works if formats align (HH:mm:ss)
-                        const coveringRecord = unavailabilityRecords.find(u => {
-                            // Date Match first (if multi-day array)
-                            // Assuming u.start_date covers s.date (which is true if fetched correctly)
-                            // Time Match: u.start <= s.end && u.end >= s.start
-                            const uStart = u.start_time || '00:00:00';
-                            const uEnd = u.end_time || '23:59:59';
-                            return uStart <= sEnd && uEnd >= sStart;
-                        });
-
-                        if(coveringRecord) {
-                            coverageHtml += `<div class="text-[10px] text-blue-600 bg-blue-50 px-1 rounded border border-blue-100"><i class="fas fa-database"></i> Logged (ID: ${coveringRecord.unavailability_id})</div>`;
-                        } else {
-                             coverageHtml += `<div class="text-[10px] text-red-400"><i class="fas fa-exclamation"></i> No DB Time Match</div>`;
-                        }
+                            coverageHtml = `<div class="text-xs text-orange-600 font-bold mb-1"><i class="fas fa-user-times"></i> Not Covered</div>`;
                     }
 
                     return `<tr class="hover:bg-gray-50 border-b">
