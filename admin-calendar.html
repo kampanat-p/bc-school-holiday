@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin Calendar v1.0.0</title>
+
+  <!-- Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js'></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap');
+    body { font-family: 'Sarabun', sans-serif; }
+    
+    /* Calendar Overrides */
+    .fc-event { cursor: pointer; border: none; }
+    .fc-daygrid-event { font-size: 0.8rem; padding: 2px 4px; border-radius: 4px; }
+    .fc-toolbar-title { font-size: 1.25rem !important; font-weight: 600; }
+    .fc-button-primary { background-color: #059669 !important; border-color: #059669 !important; }
+    .fc-button-primary:hover { background-color: #047857 !important; border-color: #047857 !important; }
+    .fc-button-active { background-color: #065f46 !important; }
+
+    /* Modal Animation */
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .modal-backdrop { animation: fadeIn 0.2s ease-out; }
+    .modal-content { animation: slideUp 0.2s ease-out; }
+  </style>
+</head>
+<body class="bg-gray-50 h-screen flex flex-col overflow-hidden">
+
+  <!-- Header & Stats -->
+  <header class="bg-white border-b px-6 py-4 flex justify-between items-center shadow-sm z-10">
+    <div class="flex items-center space-x-3">
+        <div class="bg-green-100 p-2 rounded-lg text-green-700">
+            <i class="fas fa-calendar-check text-xl"></i>
+        </div>
+        <div>
+            <h1 class="text-xl font-bold text-gray-800">Request Dashboard</h1>
+            <p class="text-xs text-gray-500">Braincloud Operations</p>
+        </div>
+    </div>
+
+    <div class="flex space-x-6">
+        <div class="text-center">
+            <p class="text-xs text-gray-400 font-semibold uppercase">Pending</p>
+            <p id="stat-pending" class="text-2xl font-bold text-orange-500">0</p>
+        </div>
+        <div class="text-center">
+            <p class="text-xs text-gray-400 font-semibold uppercase">Approved (This Month)</p>
+            <p id="stat-approved" class="text-2xl font-bold text-green-600">0</p>
+        </div>
+        <button onclick="fetchEvents()" class="bg-gray-100 hover:bg-gray-200 text-gray-600 p-2 rounded-full w-10 h-10 flex items-center justify-center transition">
+            <i class="fas fa-sync-alt"></i>
+        </button>
+    </div>
+  </header>
+
+  <!-- Main Calendar Area -->
+  <div class="flex-1 overflow-hidden p-4">
+    <div class="bg-white rounded-xl shadow h-full p-2 overflow-hidden flex flex-col">
+        <div id='calendar' class="flex-1"></div>
+    </div>
+  </div>
+
+  <!-- Detail Modal -->
+  <div id="eventModal" class="fixed inset-0 z-50 hidden">
+    <!-- Backdrop -->
+    <div class="absolute inset-0 bg-black bg-opacity-40 backdrop-blur-sm modal-backdrop" onclick="closeModal()"></div>
+    
+    <!-- Content -->
+    <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl w-full max-w-md modal-content overflow-hidden">
+        
+        <!-- Modal Header -->
+        <div id="modalHeader" class="p-6 text-white bg-gray-800">
+            <div class="flex justify-between items-start">
+                <div>
+                    <span id="modalTypeBadge" class="inline-block px-2 py-1 rounded text-xs font-bold uppercase tracking-wider bg-white bg-opacity-20 mb-2">
+                        Type
+                    </span>
+                    <h2 id="modalTitle" class="text-2xl font-bold leading-tight">Title</h2>
+                    <p id="modalSubtitle" class="text-sm opacity-90 mt-1">Subtitle</p>
+                </div>
+                <button onclick="closeModal()" class="text-white opacity-70 hover:opacity-100">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Modal Body -->
+        <div class="p-6 space-y-4">
+            
+            <!-- Dates -->
+            <div class="flex items-center text-gray-600">
+                <i class="far fa-calendar-alt w-6 text-center"></i>
+                <span id="modalDates" class="ml-3 font-medium">Date Range</span>
+            </div>
+
+            <!-- Reason -->
+            <div class="flex items-start text-gray-600">
+                <i class="far fa-comment-alt w-6 text-center mt-1"></i>
+                <span id="modalReason" class="ml-3 italic">Reason text...</span>
+            </div>
+            
+            <!-- Affected Classes (Collapsible) -->
+            <div id="modalClassesContainer" class="hidden bg-gray-50 rounded-lg p-3 text-sm">
+                <p class="font-semibold text-gray-500 text-xs uppercase mb-2">Affected Sessions</p>
+                <div id="modalClassesList" class="max-h-32 overflow-y-auto space-y-1 text-gray-700"></div>
+            </div>
+
+            <!-- Status -->
+            <div class="flex items-center">
+                <span class="text-sm font-semibold text-gray-500 w-20">Status:</span>
+                <span id="modalStatus" class="font-bold">Pending</span>
+            </div>
+            
+            <div id="modalTimestamp" class="text-xs text-gray-400 mt-4 text-right">Requested at...</div>
+        </div>
+
+        <!-- Actions -->
+        <div id="modalActions" class="p-4 bg-gray-50 border-t flex justify-end space-x-3">
+            <button onclick="updateStatus('Rejected')" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-semibold text-sm transition">
+                Reject
+            </button>
+            <button onclick="updateStatus('Approved')" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm shadow-md transition transform hover:-translate-y-0.5">
+                Approve
+            </button>
+        </div>
+    </div>
+  </div>
+
+<script>
+    // --- Config ---
+    const CONFIG = {
+        SUPABASE_URL: "https://cgznmxcecljfybcgujjb.supabase.co",
+        SUPABASE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ"
+    };
+
+    let calendar;
+    let currentEventId = null;
+    // Fix: Use global 'supabase' object provided by the CDN, and avoid naming collision
+    const db = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+
+    // --- Init ---
+    document.addEventListener('DOMContentLoaded', function() {
+        const calendarEl = document.getElementById('calendar');
+        
+        calendar = new FullCalendar.Calendar(calendarEl, {
+            initialView: 'dayGridMonth',
+            headerToolbar: {
+                left: 'prev,next today',
+                center: 'title',
+                right: 'dayGridMonth,dayGridWeek,listWeek'
+            },
+            height: '100%',
+            eventClick: function(info) {
+                openModal(info.event);
+            },
+            events: fetchEvents
+        });
+
+        calendar.render();
+    });
+
+    // --- Data Fetching ---
+    async function fetchEvents(fetchInfo, successCallback, failureCallback) {
+        // FullCalendar calls this. We can ignore arguments and refresh manually too.
+        
+        try {
+            const { data, error } = await db
+                .from('requests_log')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+
+            console.log("Fetched Events:", data.length);
+            updateStats(data);
+
+            const events = data.map(r => {
+                const isLeave = r.request_category === 'Teacher' || r.school_code === 'N/A';
+                const isPending = r.status === 'Pending';
+                
+                // Color Logic
+                let color = isLeave ? '#3B82F6' : '#10B981'; // Blue vs Green
+                if(r.status === 'Rejected') color = '#9CA3AF'; // Gray
+                else if(isPending) color = '#F59E0B'; // Orange override for pending
+
+                // Title
+                const title = isLeave 
+                    ? `👤 ${r.teacher_id || r.user_name}` 
+                    : `🏫 ${r.school_code}`;
+
+                return {
+                    id: r.id,
+                    title: title,
+                    start: r.start_date,
+                    end: r.end_date ? new Date(new Date(r.end_date).getTime() + 86400000).toISOString().split('T')[0] : r.start_date, // FullCalendar end is exclusive
+                    backgroundColor: color,
+                    borderColor: color,
+                    extendedProps: { ...r }
+                };
+            });
+
+            if(successCallback) successCallback(events);
+            else {
+                calendar.removeAllEvents();
+                calendar.addEventSource(events);
+            }
+
+        } catch (err) {
+            console.error(err);
+            if(failureCallback) failureCallback(err);
+        }
+    }
+
+    function updateStats(data) {
+        const pending = data.filter(d => d.status === 'Pending').length;
+        // Simple logic for "This Month" approval
+        const currentMonth = new Date().getMonth();
+        const approved = data.filter(d => d.status === 'Approved' && new Date(d.start_date).getMonth() === currentMonth).length;
+
+        document.getElementById('stat-pending').innerText = pending;
+        document.getElementById('stat-approved').innerText = approved;
+    }
+
+    // --- Modal Logic ---
+    function openModal(event) {
+        const p = event.extendedProps;
+        currentEventId = p.id;
+        
+        // Colors & Type
+        const isLeave = p.request_category === 'Teacher' || p.school_code === 'N/A';
+        const header = document.getElementById('modalHeader');
+        
+        // Dynamic Header Color logic based on Type + Status
+        let headerColorClass = isLeave ? 'bg-blue-600' : 'bg-green-600';
+        if (p.status === 'Rejected') headerColorClass = 'bg-gray-500';
+        else if (p.status === 'Pending') headerColorClass = 'bg-orange-500';
+        
+        header.className = `p-6 text-white transition-colors duration-300 ${headerColorClass}`;
+
+        // Text Content
+        document.getElementById('modalTypeBadge').innerText = isLeave ? "Leave Request" : "School Holiday";
+        document.getElementById('modalTitle').innerText = isLeave ? (p.teacher_id || p.user_name) : (p.school_code + " - " + p.school_name); 
+        document.getElementById('modalSubtitle').innerText = "Requested by: " + p.user_name;
+        
+        // Dates
+        let dateText = p.start_date;
+        if(p.end_date && p.end_date !== p.start_date) dateText += ` ➔ ${p.end_date}`;
+        document.getElementById('modalDates').innerText = dateText;
+
+        // Reason
+        document.getElementById('modalReason').innerText = p.reason || "No reason provided.";
+
+        // Status
+        const statusEl = document.getElementById('modalStatus');
+        statusEl.innerText = p.status;
+        statusEl.className = `font-bold ${p.status === 'Approved' ? 'text-green-600' : (p.status === 'Rejected' ? 'text-red-500' : 'text-orange-500')}`;
+
+        // Timestamp
+        document.getElementById('modalTimestamp').innerText = "📅 Submitted: " + new Date(p.created_at).toLocaleString();
+
+        // Affected Sessions (JSON Parsing)
+        const classContainer = document.getElementById('modalClassesContainer');
+        const classList = document.getElementById('modalClassesList');
+        if(p.affected_sessions) {
+            try {
+                let sessions;
+                if(typeof p.affected_sessions === 'string') {
+                    // Try parsing if it's a JSON string
+                    if(p.affected_sessions.startsWith('[')) sessions = JSON.parse(p.affected_sessions);
+                    else sessions = [p.affected_sessions]; // Or just text
+                } else {
+                    sessions = p.affected_sessions;
+                }
+
+                if(Array.isArray(sessions) && sessions.length > 0) {
+                    classContainer.classList.remove('hidden');
+                    classList.innerHTML = sessions.map(s => 
+                        // If it's just an ID string, show it. If object, show details (TBD based on your storage format)
+                        `<div class="bg-white border p-1 rounded text-xs truncate">${s}</div>`
+                    ).join('');
+                } else {
+                    classContainer.classList.add('hidden');
+                }
+            } catch(e) {
+                console.warn("JSON Parse error", e);
+                classContainer.classList.add('hidden');
+            }
+        } else {
+            classContainer.classList.add('hidden');
+        }
+
+        // Action Buttons Visibility
+        const actionsDiv = document.getElementById('modalActions');
+        if(p.status === 'Pending') {
+            actionsDiv.classList.remove('hidden');
+            actionsDiv.classList.add('flex');
+        } else {
+            actionsDiv.classList.add('hidden');
+            actionsDiv.classList.remove('flex');
+        }
+
+        const modal = document.getElementById('eventModal');
+        modal.classList.remove('hidden');
+    }
+
+    function closeModal() {
+        document.getElementById('eventModal').classList.add('hidden');
+        currentEventId = null;
+    }
+
+    async function updateStatus(newStatus) {
+        if(!currentEventId) return;
+
+        // Optimistic UI Update
+        const btnDiv = document.getElementById('modalActions');
+        btnDiv.innerHTML = '<span class="text-gray-500 text-sm animate-pulse">Updating...</span>';
+
+        try {
+            const { error } = await db
+                .from('requests_log')
+                .update({ status: newStatus })
+                .eq('id', currentEventId);
+
+            if (error) throw error;
+
+            // Success
+            closeModal();
+            calendar.refetchEvents(); // Refresh data
+
+            // Restore buttons for next time
+            setTimeout(() => {
+                btnDiv.innerHTML = `
+                    <button onclick="updateStatus('Rejected')" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-semibold text-sm transition">Reject</button>
+                    <button onclick="updateStatus('Approved')" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm shadow-md transition transform hover:-translate-y-0.5">Approve</button>
+                `;
+            }, 500);
+
+        } catch (err) {
+            alert("Update Failed: " + err.message);
+            // Restore buttons
+             btnDiv.innerHTML = `
+                <button onclick="updateStatus('Rejected')" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-semibold text-sm transition">Reject</button>
+                <button onclick="updateStatus('Approved')" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm shadow-md transition transform hover:-translate-y-0.5">Approve</button>
+            `;
+        }
+    }
+</script>
+</body>
+</html>
