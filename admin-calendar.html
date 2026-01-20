@@ -120,6 +120,14 @@
                 <span id="modalDates" class="font-medium text-lg text-gray-800">Date Range</span>
             </div>
 
+            <!-- DB Verification Status (Injected) -->
+            <div id="dbStatusContainer" class="hidden flex items-start text-sm">
+                 <div class="w-8 flex justify-center mt-1"><i class="fas fa-database text-blue-500"></i></div>
+                 <div class="flex-1 bg-blue-50 border border-blue-100 rounded-md p-2 text-blue-800">
+                     <span class="font-bold">Database Record Found:</span> <span id="dbStatusText">Checking...</span>
+                 </div>
+            </div>
+
             <!-- Reason -->
             <div class="flex items-start text-gray-600">
                 <div class="w-8 flex justify-center mt-1"><i class="far fa-comment-alt"></i></div>
@@ -568,12 +576,45 @@
         let dateText = p.start_date; if(p.end_date && p.end_date !== p.start_date) dateText += ` ➔ ${p.end_date}`;
         document.getElementById('modalDates').innerText = dateText;
         document.getElementById('modalReason').innerText = (p.reason && p.reason !== 'undefined') ? p.reason : "No specific reason provided.";
+        
+        // --- DB Status Check (Teacher Only) ---
+        const dbStat = document.getElementById('dbStatusContainer');
+        const dbText = document.getElementById('dbStatusText');
+        dbStat.className = "hidden flex items-start text-sm"; // Reset
+        
+        if(p.isLeave && p.teacher_id) {
+             // Check fact_teacher_unavailability
+             db.from('fact_teacher_unavailability')
+               .select('*')
+               .eq('teacher_id', p.teacher_id)
+               .lte('start_date', p.end) // overlap check roughly
+               .gte('end_date', p.start)
+               .then(({ data }) => {
+                   if(data && data.length > 0) {
+                        dbStat.className = "flex items-start text-sm mt-2"; // Show
+                        const match = data[0];
+                        dbText.innerText = `Confirmed. Type: ${match.unavailability_type || 'N/A'} (ID: ${match.unavailability_id || '?'})`;
+                   } else {
+                        dbStat.className = "flex items-start text-sm mt-2 opacity-50"; 
+                        dbStat.innerHTML = `<div class="w-8 flex justify-center mt-1"><i class="fas fa-database text-gray-400"></i></div><div class="flex-1 bg-gray-50 border border-gray-100 rounded-md p-2 text-gray-500 italic">No corresponding record found in 'fact_teacher_unavailability'.</div>`;
+                   }
+               });
+        }
 
         // --- Session Details ---
         const container = document.getElementById('modalClassesContainer');
         const tbody = document.getElementById('modalClassesBody');
         const loading = document.getElementById('modalClassesLoading');
         tbody.innerHTML = ''; container.classList.add('hidden'); loading.classList.add('hidden');
+
+        // Headers Update for Coverage
+        const thead = container.querySelector('thead tr');
+        if(thead) thead.innerHTML = `
+            <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-24">Time</th>
+            <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Class</th>
+            <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Teacher / Status</th>
+            <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Coverage Ops</th>
+        `;
 
         const raw = parseSessions(p.affected_sessions);
         if (typeof raw === 'object' && raw.startTime) {
@@ -598,12 +639,31 @@
                 tbody.innerHTML = sessionInfo.map(item => {
                     const s = sessionMap.get(item.id);
                     if(s) {
-                        const teacherName = teacherMap.get(String(s.actual_teacher_id)) || s.actual_teacher_id || "-";
+                        const currentTeacherId = String(s.actual_teacher_id);
+                        const originalTeacherId = String(p.teacher_id); // The requester
+                        const teacherName = teacherMap.get(currentTeacherId) || s.actual_teacher_id || "-";
+                        
+                        let statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700">Active</span>`;
+                        if (s.status === 'Cancelled') statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700">Cancelled</span>`;
+                        
+                        // Coverage Logic
+                        let coverageHtml = `<span class="text-orange-500 text-xs"><i class="fas fa-exclamation-triangle"></i> Not Covered</span>`;
+                        if (s.status === 'Cancelled') {
+                             coverageHtml = `<span class="text-gray-400 text-xs"><i class="fas fa-ban"></i> Class Cancelled</span>`;
+                        } else if (currentTeacherId && currentTeacherId !== originalTeacherId && currentTeacherId !== 'undefined') {
+                             coverageHtml = `<span class="text-teal-600 text-xs font-bold"><i class="fas fa-check-circle"></i> ${teacherName}</span>`;
+                        }
+
                         return `<tr class="hover:bg-gray-50 border-b">
                             <td class="px-3 py-2 text-sm font-bold text-blue-600 whitespace-nowrap">${(s.start_time||'').substring(0,5)} - ${(s.end_time||'').substring(0,5)}</td>
                             <td class="px-3 py-2 text-sm text-gray-700">${s.class_name || '-'}</td>
-                            <td class="px-3 py-2 text-sm text-gray-600">${teacherName}</td>
-                            <td class="px-3 py-2 text-xs text-green-600 font-bold uppercase">${s.status || 'Active'}</td>
+                            <td class="px-3 py-2 text-sm text-gray-600">
+                                <div>${teacherName}</div>
+                                <div class="mt-1">${statusHtml}</div>
+                            </td>
+                            <td class="px-3 py-2 align-middle">
+                                ${coverageHtml}
+                            </td>
                         </tr>`;
                     }
                     return `<tr class="bg-red-50 border-b"><td class="px-3 py-2 text-sm font-bold text-gray-400 font-mono">${item.time}</td><td class="px-3 py-2 text-sm text-gray-400 italic" colspan="3">Details not found</td></tr>`;
