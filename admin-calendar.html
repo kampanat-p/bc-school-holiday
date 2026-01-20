@@ -17,6 +17,12 @@
     
     /* Calendar Overrides */
     .fc-event { cursor: pointer; border: none; }
+    /* Enhance Today */
+    .fc-day-today { background-color: #f0fdf4 !important; }
+    .fc-day-today .fc-daygrid-day-number { font-weight: bold; color: #16a34a; font-size: 1.2em; }
+    /* Dim Past Days */
+    .fc-day-past { background-color: #f9fafb; opacity: 0.8; }
+    
     .fc-daygrid-event { font-size: 0.8rem; padding: 2px 4px; border-radius: 4px; }
     .fc-toolbar-title { font-size: 1.25rem !important; font-weight: 600; }
     .fc-button-primary { background-color: #059669 !important; border-color: #059669 !important; }
@@ -141,11 +147,14 @@
 
     let calendar;
     let currentEventId = null;
-    // Fix: Use global 'supabase' object provided by the CDN, and avoid naming collision
+    let teacherMap = new Map(); // Store ID -> Name
     const db = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
 
     // --- Init ---
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', async function() {
+        // Load Teachers First
+        await loadTeachers();
+
         const calendarEl = document.getElementById('calendar');
         
         calendar = new FullCalendar.Calendar(calendarEl, {
@@ -159,16 +168,66 @@
             eventClick: function(info) {
                 openModal(info.event);
             },
-            events: fetchEvents
+            events: fetchEvents,
+            eventContent: function(arg) {
+                // Custom Render
+                let content = document.createElement('div');
+                content.className = 'fc-content p-1 truncate';
+                
+                // Title Line (Name or School)
+                let title = document.createElement('div');
+                title.className = 'font-bold text-xs truncate';
+                title.innerText = arg.event.title;
+                
+                // Subtitle Line (Detail Info)
+                let sub = document.createElement('div');
+                sub.className = 'text-[10px] opacity-90 truncate flex items-center space-x-1';
+                
+                const props = arg.event.extendedProps;
+                
+                // Icon Logic
+                if(props.request_category === 'Teacher' || props.school_code === 'N/A') {
+                    // Teacher Leave
+                    let subText = props.leave_type || 'Leave';
+                    if(props.session_count) subText += ` (${props.session_count} classes)`;
+                    sub.innerHTML = `<i class="fas fa-user-clock text-[9px]"></i> <span>${subText}</span>`;
+                } else {
+                    // School Holiday
+                    let subText = 'Holiday';
+                    if(props.session_count) subText += ` (${props.session_count} classes)`;
+                    sub.innerHTML = `<i class="fas fa-school text-[9px]"></i> <span>${subText}</span>`;
+                }
+
+                content.appendChild(title);
+                content.appendChild(sub);
+                return { domNodes: [content] };
+            }
         });
 
         calendar.render();
     });
 
     // --- Data Fetching ---
+    async function loadTeachers() {
+        try {
+            const { data, error } = await db.from('dim_user').select('braincloud_id, fullname_en, nickname_en');
+            if(error) throw error;
+            
+            data.forEach(u => {
+                if(u.braincloud_id) {
+                    // Create Name: "John Doe (John)"
+                    let name = u.fullname_en || "Unknown";
+                    if(u.nickname_en) name += ` (${u.nickname_en})`;
+                    teacherMap.set(String(u.braincloud_id), name);
+                }
+            });
+            console.log("Loaded teachers:", teacherMap.size);
+        } catch(e) {
+            console.warn("Failed to load teacher names:", e);
+        }
+    }
+
     async function fetchEvents(fetchInfo, successCallback, failureCallback) {
-        // FullCalendar calls this. We can ignore arguments and refresh manually too.
-        
         try {
             const { data, error } = await db
                 .from('requests_log')
@@ -189,27 +248,40 @@
                 if(r.status === 'Rejected') color = '#9CA3AF'; // Gray
                 else if(isPending) color = '#F59E0B'; // Orange override for pending
 
-                // Title
-                const title = isLeave 
-                    ? `👤 ${r.teacher_id || r.user_name}` 
-                    : `🏫 ${r.school_code}`;
+                // Logic to get Name
+                let displayName = r.user_name || "Unknown";
+                if(isLeave && r.teacher_id) {
+                    // Try to map ID to Name
+                    const mapped = teacherMap.get(String(r.teacher_id));
+                    if(mapped) displayName = mapped;
+                    else displayName = `ID: ${r.teacher_id}`;
+                } else if (!isLeave) {
+                    displayName = r.school_code;
+                }
+
+                // Parse Sessions for Count
+                let sessionCount = 0;
+                if(r.affected_sessions) {
+                     try {
+                        let s = (typeof r.affected_sessions === 'string' && r.affected_sessions.startsWith('[')) 
+                            ? JSON.parse(r.affected_sessions) 
+                            : r.affected_sessions;
+                        sessionCount = Array.isArray(s) ? s.length : 1;
+                     } catch(e) {}
+                }
 
                 return {
                     id: r.id,
-                    title: title,
+                    title: displayName,
                     start: r.start_date,
-                    end: r.end_date ? new Date(new Date(r.end_date).getTime() + 86400000).toISOString().split('T')[0] : r.start_date, // FullCalendar end is exclusive
+                    end: r.end_date ? new Date(new Date(r.end_date).getTime() + 86400000).toISOString().split('T')[0] : r.start_date,
                     backgroundColor: color,
                     borderColor: color,
-                    extendedProps: { ...r }
+                    extendedProps: { ...r, mapped_name: displayName, session_count: sessionCount }
                 };
             });
 
             if(successCallback) successCallback(events);
-            else {
-                calendar.removeAllEvents();
-                calendar.addEventSource(events);
-            }
 
         } catch (err) {
             console.error(err);
@@ -219,7 +291,6 @@
 
     function updateStats(data) {
         const pending = data.filter(d => d.status === 'Pending').length;
-        // Simple logic for "This Month" approval
         const currentMonth = new Date().getMonth();
         const approved = data.filter(d => d.status === 'Approved' && new Date(d.start_date).getMonth() === currentMonth).length;
 
@@ -236,7 +307,6 @@
         const isLeave = p.request_category === 'Teacher' || p.school_code === 'N/A';
         const header = document.getElementById('modalHeader');
         
-        // Dynamic Header Color logic based on Type + Status
         let headerColorClass = isLeave ? 'bg-blue-600' : 'bg-green-600';
         if (p.status === 'Rejected') headerColorClass = 'bg-gray-500';
         else if (p.status === 'Pending') headerColorClass = 'bg-orange-500';
@@ -245,8 +315,8 @@
 
         // Text Content
         document.getElementById('modalTypeBadge').innerText = isLeave ? "Leave Request" : "School Holiday";
-        document.getElementById('modalTitle').innerText = isLeave ? (p.teacher_id || p.user_name) : (p.school_code + " - " + p.school_name); 
-        document.getElementById('modalSubtitle').innerText = "Requested by: " + p.user_name;
+        document.getElementById('modalTitle').innerText = p.mapped_name || p.title; 
+        document.getElementById('modalSubtitle').innerText = "Requested by: " + (p.user_name || "Guest");
         
         // Dates
         let dateText = p.start_date;
@@ -271,9 +341,8 @@
             try {
                 let sessions;
                 if(typeof p.affected_sessions === 'string') {
-                    // Try parsing if it's a JSON string
                     if(p.affected_sessions.startsWith('[')) sessions = JSON.parse(p.affected_sessions);
-                    else sessions = [p.affected_sessions]; // Or just text
+                    else sessions = [p.affected_sessions];
                 } else {
                     sessions = p.affected_sessions;
                 }
@@ -281,8 +350,7 @@
                 if(Array.isArray(sessions) && sessions.length > 0) {
                     classContainer.classList.remove('hidden');
                     classList.innerHTML = sessions.map(s => 
-                        // If it's just an ID string, show it. If object, show details (TBD based on your storage format)
-                        `<div class="bg-white border p-1 rounded text-xs truncate">${s}</div>`
+                        `<div class="bg-white border p-1 rounded text-xs truncate shadow-sm mb-1 text-gray-600 font-mono">${s}</div>`
                     ).join('');
                 } else {
                     classContainer.classList.add('hidden');
@@ -317,7 +385,6 @@
     async function updateStatus(newStatus) {
         if(!currentEventId) return;
 
-        // Optimistic UI Update
         const btnDiv = document.getElementById('modalActions');
         btnDiv.innerHTML = '<span class="text-gray-500 text-sm animate-pulse">Updating...</span>';
 
@@ -329,11 +396,9 @@
 
             if (error) throw error;
 
-            // Success
             closeModal();
-            calendar.refetchEvents(); // Refresh data
+            calendar.refetchEvents(); 
 
-            // Restore buttons for next time
             setTimeout(() => {
                 btnDiv.innerHTML = `
                     <button onclick="updateStatus('Rejected')" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-semibold text-sm transition">Reject</button>
@@ -343,7 +408,6 @@
 
         } catch (err) {
             alert("Update Failed: " + err.message);
-            // Restore buttons
              btnDiv.innerHTML = `
                 <button onclick="updateStatus('Rejected')" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-100 font-semibold text-sm transition">Reject</button>
                 <button onclick="updateStatus('Approved')" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm shadow-md transition transform hover:-translate-y-0.5">Approve</button>
