@@ -636,8 +636,72 @@
         const raw = parseSessions(p.affected_sessions);
         if (typeof raw === 'object' && raw.startTime) {
             container.classList.remove('hidden');
-            // Partial text parsing
-            tbody.innerHTML = `<tr><td class="px-3 py-2 text-sm font-bold text-gray-700">${raw.startTime} - ${raw.endTime}</td><td class="px-3 py-2 text-sm text-gray-500 italic" colspan="3">Partial Day Request</td></tr>`;
+            loading.classList.remove('hidden');
+
+            // --- Partial Day: Resolve Sessions manually ---
+            const { data: sessions } = await db.from('fact_daily_session')
+                .select('*')
+                .eq('original_teacher_id', p.teacher_id)
+                .eq('date', p.start_date)
+                .gte('start_time', raw.startTime)
+                .lte('end_time', raw.endTime);
+            loading.classList.add('hidden');
+            
+            if(!sessions || sessions.length === 0) {
+                 tbody.innerHTML = `<tr><td class="px-3 py-2 text-sm font-bold text-gray-700">${raw.startTime} - ${raw.endTime}</td><td class="px-3 py-2 text-sm text-gray-500 italic" colspan="3">Partial Day - No classes found in DB for this range.</td></tr>`;
+            } else {
+                 let coveredCount = 0;
+                 let totalCount = sessions.length;
+
+                 tbody.innerHTML = sessions.map(s => {
+                    const currentTeacherId = String(s.actual_teacher_id);
+                    const originalTeacherId = String(p.teacher_id);
+                    const teacherName = teacherMap.get(currentTeacherId) || s.actual_teacher_id || "-";
+                    
+                    let statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700">Active</span>`;
+                    if (s.status === 'Cancelled') statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700">Cancelled</span>`;
+                    
+                    let coverageHtml = '';
+                    let isCovered = false;
+                    
+                    if (s.status === 'Cancelled') {
+                            coverageHtml = `<div class="text-gray-400 text-xs mb-1"><i class="fas fa-ban"></i> Class Cancelled</div>`;
+                            isCovered = true;
+                    } else if (currentTeacherId && currentTeacherId !== originalTeacherId && currentTeacherId !== 'undefined') {
+                            coverageHtml = `<div class="text-teal-600 text-xs font-bold mb-1"><i class="fas fa-user-check"></i> Covered by ${teacherName}</div>`;
+                            isCovered = true;
+                    } else {
+                            coverageHtml = `<div class="text-xs text-orange-600 font-bold mb-1"><i class="fas fa-user-times"></i> Not Covered</div>`;
+                    }
+                    if(isCovered) coveredCount++;
+
+                    return `<tr class="hover:bg-gray-50 border-b">
+                        <td class="px-3 py-2 text-sm font-bold text-blue-600 whitespace-nowrap">${(s.start_time||'').substring(0,5)} - ${(s.end_time||'').substring(0,5)}</td>
+                        <td class="px-3 py-2 text-sm text-gray-700">${s.class_name || '-'}</td>
+                        <td class="px-3 py-2 text-sm text-gray-600">
+                            <div>${teacherName}</div>
+                            <div class="mt-1">${statusHtml}</div>
+                        </td>
+                        <td class="px-3 py-2 align-middle">
+                            ${coverageHtml}
+                        </td>
+                    </tr>`;
+                 }).join('');
+
+                 // Validation Summary (Partial)
+                 const dbCovRef = document.getElementById('coverageSummary');
+                 if(dbCovRef && !dbStat.className.includes('hidden') && totalCount > 0) {
+                     dbCovRef.classList.remove('hidden');
+                     if(coveredCount === totalCount) {
+                         dbCovRef.className = "mt-1 pt-1 border-t border-blue-200 text-xs font-bold text-teal-600 flex items-center";
+                         dbCovRef.innerHTML = `<i class="fas fa-check-circle mr-1"></i> Operations Complete! All ${totalCount} classes are covered/cancelled.`;
+                     } else {
+                         dbCovRef.className = "mt-1 pt-1 border-t border-blue-200 text-xs font-bold text-orange-600 flex items-center";
+                         dbCovRef.innerHTML = `<i class="fas fa-exclamation-triangle mr-1"></i> Attention: Only ${coveredCount}/${totalCount} classes are covered.`;
+                     }
+                 }
+            }
+
         } else if (Array.isArray(raw) && raw.length > 0) {
             container.classList.remove('hidden');
             loading.classList.remove('hidden');
