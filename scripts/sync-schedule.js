@@ -165,7 +165,11 @@ async function processSync(targetDate) {
     if (existingRows) existingRows.forEach(r => existingMap.set(r.session_id, r));
 
     const records = [];
-    const nowISO = new Date().toISOString();
+    
+    // [FIX] Generate Current Time in Bangkok Timezone (ISO String with +07:00)
+    // Node.js 'sv-SE' locale outputs YYYY-MM-DD HH:mm:ss which is close to ISO
+    const nowBkkStr = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Bangkok" }).replace(' ', 'T');
+    const nowISO = nowBkkStr + "+07:00"; // Explicitly append offset
 
     for (const s of sessions) {
         if (!s.id || !s.start_time || !s.sc_code) continue;
