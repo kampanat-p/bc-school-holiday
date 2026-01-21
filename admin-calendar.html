@@ -16,12 +16,13 @@
     body { font-family: 'Sarabun', sans-serif; }
     
     /* Calendar Overrides */
-    .fc-event { cursor: pointer; border: none; }
+    .fc-event { cursor: pointer; border: none; z-index: 10; }
     /* Enhance Today */
     .fc-day-today { background-color: #f0fdf4 !important; }
     .fc-day-today .fc-daygrid-day-number { font-weight: bold; color: #16a34a; font-size: 1.2em; }
-    /* Dim Past Days */
-    .fc-day-past { opacity: 0.8; background-color: #f9fafb; }
+    /* Dim Past Days - No opacity to avoid stacking context bugs */
+    .fc-day-past { background-color: #f8fafc; }
+    .fc-day-past .fc-daygrid-day-number { opacity: 0.5; }
     
     .fc-daygrid-event { font-size: 0.75rem; border-radius: 4px; padding: 1px;}
     .fc-toolbar-title { font-size: 1.25rem !important; font-weight: 600; }
