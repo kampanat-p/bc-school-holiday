@@ -667,17 +667,59 @@
              const { data } = await db.from('fact_teacher_unavailability')
                .select('*')
                .eq('teacher_id', p.teacher_id)
-               .lte('start_date', p.end_date || p.start_date) // Fix: use start_date/end_date keys
+               .lte('start_date', p.end_date || p.start_date) 
                .gte('end_date', p.start_date);
              
              if(data && data.length > 0) {
                 dbStat.className = "flex items-start text-sm mt-2"; 
-                // Summarize using new references
                 const types = [...new Set(data.map(u => u.unavailability_type || 'Unspecified'))].join(', ');
                 document.getElementById('dbStatusText').innerText = `Found ${data.length} record(s). Type: ${types}`;
              } else {
                 dbStat.className = "flex items-start text-sm mt-2 opacity-75"; 
                 dbStat.innerHTML = `<div class="w-8 flex justify-center mt-1"><i class="fas fa-exclamation-circle text-orange-400"></i></div><div class="flex-1 bg-orange-50 border border-orange-100 rounded-md p-2 text-orange-700 italic">No official 'unavailability' record found for these dates. <br><span class="text-xs not-italic text-gray-500">Checked range: ${p.start_date} to ${p.end_date || p.start_date}</span></div>`;
+             } // End Teacher Check
+        } 
+        else if (!p.isLeave) {
+             // --- School Holiday Coverage Check ---
+             const schoolId = schoolCodeMap.get(p.school_code);
+             if(schoolId) {
+                 loading.classList.remove('hidden'); container.classList.remove('hidden');
+                 const { data } = await db.from('fact_daily_session')
+                     .select('*')
+                     .eq('school_id', schoolId)
+                     .gte('date', p.start_date)
+                     .lte('date', p.end_date || p.start_date);
+                 loading.classList.add('hidden');
+                 
+                 if(data && data.length > 0) {
+                     // Check for NON-cancelled
+                     const active = data.filter(s => s.status !== 'Cancelled');
+                     if(active.length === 0) {
+                         dbStat.className = "flex items-start text-sm mt-2"; 
+                         dbStat.innerHTML = `<div class="w-8 flex justify-center mt-1"><i class="fas fa-check-circle text-teal-600"></i></div><div class="flex-1 bg-teal-50 border border-teal-100 rounded-md p-2 text-teal-800 font-bold">All ${data.length} sessions are Cancelled. Operations Complete.</div>`;
+                     } else {
+                         dbStat.className = "flex items-start text-sm mt-2"; 
+                         dbStat.innerHTML = `<div class="w-8 flex justify-center mt-1"><i class="fas fa-exclamation-triangle text-red-500"></i></div><div class="flex-1 bg-red-50 border border-red-100 rounded-md p-2 text-red-800 font-bold">Alert: ${active.length} sessions are still Active (Not Cancelled).</div>`;
+                     }
+                     
+                     // List Sessions
+                     tbody.innerHTML = data.map(s => {
+                         let statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700">Active</span>`;
+                         if (s.status === 'Cancelled') statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700">Cancelled</span>`;
+                         return `<tr class="hover:bg-gray-50 border-b">
+                            <td class="px-3 py-2 text-sm font-bold text-blue-600 whitespace-nowrap">${s.date.substring(5)} ${(s.start_time||'').substring(0,5)}</td>
+                            <td class="px-3 py-2 text-sm text-gray-700">${s.class_name || '-'}</td>
+                            <td class="px-3 py-2 text-sm text-gray-600">${s.actual_teacher_id || '-'} ${statusHtml}</td>
+                            <td class="px-3 py-2 align-middle">${s.status === 'Cancelled' ? '<i class="fas fa-check text-green-500"></i>' : '<i class="fas fa-times text-red-400"></i>'}</td>
+                         </tr>`;
+                     }).join('');
+                 } else {
+                     // No classes found -> Treat as Neutral/Green
+                     dbStat.className = "flex items-start text-sm mt-2 opacity-75"; 
+                     dbStat.innerHTML = `<div class="w-8 flex justify-center mt-1"><i class="fas fa-info-circle text-gray-400"></i></div><div class="flex-1 bg-gray-50 border border-gray-100 rounded-md p-2 text-gray-600 italic">No classes found in DB for this school/date. (Likely Weekend or No Clean Data)</div>`;
+                     tbody.innerHTML = `<tr><td colspan="4" class="px-3 py-4 text-center text-sm text-gray-500 italic">No scheduled sessions found in database.</td></tr>`;
+                 }
+                 return; // Return early, skipping the generic teacher logic
              }
         }
 
