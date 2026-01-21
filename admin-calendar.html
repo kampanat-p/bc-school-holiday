@@ -692,8 +692,8 @@
                  loading.classList.add('hidden');
                  
                  if(data && data.length > 0) {
-                     // Check for NON-cancelled
-                     const active = data.filter(s => s.status !== 'Cancelled');
+                     // Check for NON-cancelled (Fuzzy match)
+                     const active = data.filter(s => !(s.status || '').includes('Cancelled'));
                      if(active.length === 0) {
                          dbStat.className = "flex items-start text-sm mt-2"; 
                          dbStat.innerHTML = `<div class="w-8 flex justify-center mt-1"><i class="fas fa-check-circle text-teal-600"></i></div><div class="flex-1 bg-teal-50 border border-teal-100 rounded-md p-2 text-teal-800 font-bold">All ${data.length} sessions are Cancelled. Operations Complete.</div>`;
@@ -704,13 +704,14 @@
                      
                      // List Sessions
                      tbody.innerHTML = data.map(s => {
+                         const isCancelled = (s.status || '').includes('Cancelled');
                          let statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700">Active</span>`;
-                         if (s.status === 'Cancelled') statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700">Cancelled</span>`;
+                         if (isCancelled) statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700">${s.status}</span>`;
                          return `<tr class="hover:bg-gray-50 border-b">
-                            <td class="px-3 py-2 text-sm font-bold text-blue-600 whitespace-nowrap">${s.date.substring(5)} ${(s.start_time||'').substring(0,5)}</td>
+                            <td class="px-3 py-2 text-sm font-bold text-blue-600 whitespace-nowrap">${(s.date||'').substring(5)} ${(s.start_time||'').substring(0,5)}</td>
                             <td class="px-3 py-2 text-sm text-gray-700">${s.class_name || '-'}</td>
                             <td class="px-3 py-2 text-sm text-gray-600">${s.actual_teacher_id || '-'} ${statusHtml}</td>
-                            <td class="px-3 py-2 align-middle">${s.status === 'Cancelled' ? '<i class="fas fa-check text-green-500"></i>' : '<i class="fas fa-times text-red-400"></i>'}</td>
+                            <td class="px-3 py-2 align-middle">${isCancelled ? '<i class="fas fa-check text-green-500"></i>' : '<i class="fas fa-times text-red-400"></i>'}</td>
                          </tr>`;
                      }).join('');
                  } else {
@@ -773,14 +774,15 @@
                     const currentTeacherId = String(s.actual_teacher_id);
                     const originalTeacherId = String(p.teacher_id);
                     const teacherName = teacherMap.get(currentTeacherId) || s.actual_teacher_id || "-";
+                    const isCancelled = (s.status || '').includes('Cancelled');
                     
                     let statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700">Active</span>`;
-                    if (s.status === 'Cancelled') statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700">Cancelled</span>`;
+                    if (isCancelled) statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700">${s.status}</span>`;
                     
                     let coverageHtml = '';
                     let isCovered = false;
                     
-                    if (s.status === 'Cancelled') {
+                    if (isCancelled) {
                             coverageHtml = `<div class="text-gray-400 text-xs mb-1"><i class="fas fa-ban"></i> Class Cancelled</div>`;
                             isCovered = true;
                     } else if (currentTeacherId && currentTeacherId !== originalTeacherId && currentTeacherId !== 'undefined') {
@@ -843,16 +845,17 @@
                 if(s) {
                     const currentTeacherId = String(s.actual_teacher_id);
                     const originalTeacherId = String(p.teacher_id);
-                    const teacherName = teacherMap.get(currentTeacherId) || s.actual_teacher_id || "-";
+                    const isCancelled = (s.status || '').includes('Cancelled');
                     
                     let statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700">Active</span>`;
-                    if (s.status === 'Cancelled') statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700">Cancelled</span>`;
+                    if (isCancelled) statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700">${s.status}</span>`;
                     
                     // --- Admin Coverage Check ---
                     // Simply checking if the teacher is substituted
                     let coverageHtml = '';
                     let isCovered = false;
                     
+                    if (isCancelled
                     if (s.status === 'Cancelled') {
                             coverageHtml = `<div class="text-gray-400 text-xs mb-1"><i class="fas fa-ban"></i> Class Cancelled</div>`;
                             isCovered = true;
@@ -1022,11 +1025,9 @@
                         }
                     } else return; // Full Day (maybe check all classes?)
 
-                    if(rows.length > 0) {
-                        const total = rows.length;
-                        let cancelled = rows.filter(r => r.status === 'Cancelled').length;
+                    if(rows.length > 0) {(r.status || '').includes('Cancelled')).length;
                         // Count covered (substitution)
-                        let covered = rows.filter(r => r.status !== 'Cancelled' && String(r.actual_teacher_id) !== String(p.teacher_id) && String(r.actual_teacher_id) !== 'undefined').length;
+                        let covered = rows.filter(r => !(r.status || '').includes('Cancelled') && String(r.actual_teacher_id) !== String(p.teacher_id) && String(r.actual_teacher_id) !== 'undefined').length;
                         
                         if (cancelled === total) e.setExtendedProp('coverageStatus', 'all_cancelled');
                         else if ((cancelled + covered) === total) e.setExtendedProp('coverageStatus', 'all_covered');
@@ -1043,6 +1044,8 @@
                              .lte('date', p.end_date || p.start_date);
                          
                          if(data && data.length > 0) {
+                             const total = data.length;
+                             const cancelled = data.filter(s => (s.status || '').includes('Cancelled')
                              const total = data.length;
                              const cancelled = data.filter(s => s.status === 'Cancelled').length;
                              
