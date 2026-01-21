@@ -719,7 +719,22 @@
                      dbStat.innerHTML = `<div class="w-8 flex justify-center mt-1"><i class="fas fa-info-circle text-gray-400"></i></div><div class="flex-1 bg-gray-50 border border-gray-100 rounded-md p-2 text-gray-600 italic">No classes found in DB for this school/date. (Likely Weekend or No Clean Data)</div>`;
                      tbody.innerHTML = `<tr><td colspan="4" class="px-3 py-4 text-center text-sm text-gray-500 italic">No scheduled sessions found in database.</td></tr>`;
                  }
-                 return; // Return early, skipping the generic teacher logic
+                 
+                 // --- Status Dropdown (Duplicated for School Logic) ---
+                 const select = document.getElementById('modalStatusSelect');
+                 select.value = p.status;
+                 const updateSelectColor = (val) => {
+                    select.className = "flex-1 form-select block w-full pl-3 pr-10 py-2 text-base sm:text-sm rounded-md shadow-sm border focus:outline-none transition-colors duration-300 ";
+                    if(val === 'Approved') select.classList.add('bg-green-50', 'text-green-700', 'border-green-300');
+                    else if(val === 'Rejected') select.classList.add('bg-gray-100', 'text-gray-500', 'border-gray-300');
+                    else if(val === 'Cancelled') select.classList.add('bg-red-50', 'text-red-700', 'border-red-300');
+                    else select.classList.add('bg-orange-50', 'text-orange-700', 'border-orange-300');
+                 }
+                 updateSelectColor(p.status);
+                 select.onchange = (e) => { updateSelectColor(e.target.value); };
+
+                 document.getElementById('eventModal').classList.remove('hidden');
+                 return; 
              }
         }
 
