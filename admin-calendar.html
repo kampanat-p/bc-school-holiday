@@ -452,6 +452,16 @@
         if(props.badgeText && props.badgeText !== 'FULL') {
             html += `<span class="ml-1 text-[9px] px-1 rounded bg-white/40 font-bold whitespace-nowrap opacity-90">${props.badgeText}</span>`;
         }
+        
+        // Coverage Status Icons
+        if (props.coverageStatus === 'all_cancelled') {
+             html += `<i class="fas fa-check-circle text-red-500 ml-1 text-xs bg-white rounded-full" title="All Cancelled"></i>`; 
+        } else if (props.coverageStatus === 'all_covered') {
+             html += `<i class="fas fa-check-circle text-green-500 ml-1 text-xs bg-white rounded-full" title="All Covered"></i>`;
+        } else if (props.coverageStatus === 'partial') {
+             html += `<i class="fas fa-exclamation-circle text-orange-400 ml-1 text-xs bg-white rounded-full" title="Partially Covered"></i>`;
+        }
+
         html += `</div>`;
         return { html: html };
     }
@@ -530,6 +540,10 @@
                 };
             }).filter(Boolean); // Filter nulls
             if(successCallback) successCallback(events);
+            
+            // Trigger coverage check for visible events
+            setTimeout(() => checkCoverageForView(), 500);
+
         } catch (err) { failureCallback(err); }
     }
     
@@ -865,6 +879,68 @@
             btn.innerHTML = "Error";
             btn.disabled = false;
         }
+    }
+
+    // --- Bulk Coverage Check ---
+    async function checkCoverageForView() {
+        const events = calendar.getEvents();
+        // Target: Teacher Leaves, Not Rejected/Cancelled, No status yet
+        const targets = events.filter(e => {
+            const p = e.extendedProps;
+            return p.isLeave && p.status !== 'Rejected' && p.status !== 'Cancelled' && !p.coverageStatus;
+        });
+
+        if(targets.length === 0) return;
+
+        // Process in parallel
+        await Promise.all(targets.map(async (e) => {
+            const p = e.extendedProps;
+            const raw = parseSessions(p.affected_sessions);
+            let rows = [];
+
+            try {
+                if (typeof raw === 'object' && raw.startTime && p.teacher_id) {
+                    // Partial Day
+                    const { data } = await db.from('fact_daily_session')
+                        .select('status, actual_teacher_id')
+                        .eq('original_teacher_id', p.teacher_id)
+                        .eq('date', p.start_date)
+                        .gte('start_time', raw.startTime)
+                        .lte('end_time', raw.endTime);
+                    rows = data || [];
+                } else if (Array.isArray(raw) && raw.length > 0) {
+                     // ID List
+                     const ids = raw.map(s => (typeof s==='string' && s.includes('_')) ? s : null).filter(Boolean);
+                     if(ids.length > 0) {
+                         const { data } = await db.from('fact_daily_session')
+                            .select('status, actual_teacher_id')
+                            .in('session_id', ids);
+                         rows = data || [];
+                     }
+                }
+
+                if(rows.length > 0) {
+                    const total = rows.length;
+                    let cancelled = 0;
+                    let covered = 0;
+                    
+                    rows.forEach(r => {
+                        if(r.status === 'Cancelled') cancelled++;
+                        else {
+                             // Check substitution
+                             const current = String(r.actual_teacher_id);
+                             const original = String(p.teacher_id);
+                             if(current && current !== 'undefined' && current !== original) covered++;
+                        }
+                    });
+
+                    // Logic: Green if All Resolved (Covered + Cancelled), Red if All Cancelled
+                    if (cancelled === total) e.setExtendedProp('coverageStatus', 'all_cancelled');
+                    else if ((cancelled + covered) === total) e.setExtendedProp('coverageStatus', 'all_covered');
+                    else if (cancelled > 0 || covered > 0) e.setExtendedProp('coverageStatus', 'partial');
+                }
+            } catch(err) { console.warn("Coverage check fail:", err); }
+        }));
     }
 </script>
 </body>
