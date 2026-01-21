@@ -15,19 +15,46 @@
     @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&display=swap');
     body { font-family: 'Sarabun', sans-serif; }
     
-    /* Calendar Overrides */
-    .fc-event { cursor: pointer; border: none; z-index: 10; }
+    /* Calendar Overrides & Beautification (Thai Style) */
+    
+    /* Fonts & General */
+    .fc { font-family: 'Sarabun', sans-serif; }
+    .fc-toolbar-title { font-size: 2rem !important; font-weight: 800 !important; color: #1e3a8a; letter-spacing: -0.5px; } /* Bold Deep Blue Title */
+    .fc-col-header-cell-cushion { font-size: 1.1rem; font-weight: 800; text-transform: uppercase; padding: 8px 0; }
+    .fc-daygrid-day-number { font-size: 1.1rem; font-weight: 700; padding: 8px !important; }
+
+    /* Sunday (Red) */
+    .fc-day-sun .fc-col-header-cell-cushion { color: #dc2626; }
+    .fc-day-sun .fc-daygrid-day-number { color: #dc2626; }
+    .fc-day-sun { background-color: #fef2f2; } /* Faint Red Background */
+
+    /* Saturday (Pale Blue / Indigo) */
+    .fc-day-sat .fc-col-header-cell-cushion { color: #6366f1; }
+    .fc-day-sat .fc-daygrid-day-number { color: #6366f1; }
+    .fc-day-sat { background-color: #f5f3ff; } /* Faint Indigo Background */
+
+    /* Weekdays (Deep Blue) */
+    .fc-day-mon .fc-col-header-cell-cushion, .fc-day-mon .fc-daygrid-day-number,
+    .fc-day-tue .fc-col-header-cell-cushion, .fc-day-tue .fc-daygrid-day-number,
+    .fc-day-wed .fc-col-header-cell-cushion, .fc-day-wed .fc-daygrid-day-number,
+    .fc-day-thu .fc-col-header-cell-cushion, .fc-day-thu .fc-daygrid-day-number,
+    .fc-day-fri .fc-col-header-cell-cushion, .fc-day-fri .fc-daygrid-day-number { color: #1e3a8a; }
+
+    /* Events */
+    .fc-event { cursor: pointer; border: none; z-index: 10; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); }
+    .fc-daygrid-event { font-size: 0.75rem; border-radius: 4px; padding: 1px; margin-top: 1px; }
+    
     /* Enhance Today */
-    .fc-day-today { background-color: #f0fdf4 !important; }
-    .fc-day-today .fc-daygrid-day-number { font-weight: bold; color: #16a34a; font-size: 1.2em; }
+    .fc-day-today { background-color: #ecfdf5 !important; }
+    .fc-day-today .fc-daygrid-day-number { font-size: 1.5em; color: #059669 !important; }
+    
     /* Dim Past Days - No opacity to avoid stacking context bugs */
     .fc-day-past { background-color: #f8fafc; }
-    .fc-day-past .fc-daygrid-day-number { opacity: 0.5; }
+    .fc-day-past .fc-daygrid-day-number { opacity: 0.4; }
+    .fc-day-past .fc-col-header-cell-cushion { opacity: 0.5; }
     
-    .fc-daygrid-event { font-size: 0.75rem; border-radius: 4px; padding: 1px;}
-    .fc-toolbar-title { font-size: 1.25rem !important; font-weight: 600; }
-    .fc-button-primary { background-color: #059669 !important; border-color: #059669 !important; }
-    .fc-button-active { background-color: #065f46 !important; }
+    .fc-button-primary { background-color: #1e40af !important; border-color: #1e40af !important; font-weight: 600; text-transform: uppercase; }
+    .fc-button-active { background-color: #1e3a8a !important; }
 
     /* Modal Animation */
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
