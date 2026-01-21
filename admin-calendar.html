@@ -855,8 +855,7 @@
                     let coverageHtml = '';
                     let isCovered = false;
                     
-                    if (isCancelled
-                    if (s.status === 'Cancelled') {
+                    if (isCancelled) {
                             coverageHtml = `<div class="text-gray-400 text-xs mb-1"><i class="fas fa-ban"></i> Class Cancelled</div>`;
                             isCovered = true;
                     } else if (currentTeacherId && currentTeacherId !== originalTeacherId && currentTeacherId !== 'undefined') {
@@ -1025,7 +1024,9 @@
                         }
                     } else return; // Full Day (maybe check all classes?)
 
-                    if(rows.length > 0) {(r.status || '').includes('Cancelled')).length;
+                    if(rows.length > 0) {
+                        const total = rows.length;
+                        let cancelled = rows.filter(r => (r.status || '').includes('Cancelled')).length;
                         // Count covered (substitution)
                         let covered = rows.filter(r => !(r.status || '').includes('Cancelled') && String(r.actual_teacher_id) !== String(p.teacher_id) && String(r.actual_teacher_id) !== 'undefined').length;
                         
@@ -1043,9 +1044,7 @@
                              .gte('date', p.start_date)
                              .lte('date', p.end_date || p.start_date);
                          
-                         if(data && data.length > 0) {
-                             const total = data.length;
-                             const cancelled = data.filter(s => (s.status || '').includes('Cancelled')
+                         if(data && data.length > 0) {s('Cancelled')
                              const total = data.length;
                              const cancelled = data.filter(s => s.status === 'Cancelled').length;
                              
