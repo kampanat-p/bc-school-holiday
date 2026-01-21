@@ -1044,9 +1044,9 @@
                              .gte('date', p.start_date)
                              .lte('date', p.end_date || p.start_date);
                          
-                         if(data && data.length > 0) {s('Cancelled')
+                         if(data && data.length > 0) {
                              const total = data.length;
-                             const cancelled = data.filter(s => s.status === 'Cancelled').length;
+                             const cancelled = data.filter(s => (s.status || '').includes('Cancelled')).length;
                              
                              if (cancelled === total) e.setExtendedProp('coverageStatus', 'all_cancelled'); // Green
                              else e.setExtendedProp('coverageStatus', 'partial'); // Orange (Warning)
