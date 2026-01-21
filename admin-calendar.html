@@ -259,7 +259,10 @@
                 right: 'dayGridMonth,dayGridWeek,listWeek'
             },
             height: '100%',
-            dayMaxEvents: 3, 
+            views: {
+                dayGridMonth: { dayMaxEvents: 6 },
+                dayGridWeek: { dayMaxEvents: false }
+            },
             eventClick: function(info) { openModal(info.event); },
             events: fetchEvents,
             eventContent: renderEventContent
