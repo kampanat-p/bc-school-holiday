@@ -268,13 +268,15 @@
     let calendar;
     let currentEventId = null;
     let teacherMap = new Map(); 
+    let schoolMap = new Map(); // id -> name
+    let schoolCodeMap = new Map(); // code -> id
     let activeAlarms = [];
     let currentFilter = 'all'; // 'all', 'school', 'teacher'
     const db = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
 
     // --- Init ---
     document.addEventListener('DOMContentLoaded', async function() {
-        await loadTeachers();
+        await Promise.all([loadTeachers(), loadSchools()]);
         
         // Setup Calendar
         const calendarEl = document.getElementById('calendar');
@@ -505,6 +507,18 @@
                     let name = `${u.firstname_en || ''} ${u.lastname_en || ''}`.trim();
                     if(u.nickname_en) name += ` (${u.nickname_en})`;
                     teacherMap.set(String(u.user_id), name);
+                }
+            });
+        } catch(e) {}
+    }
+
+    async function loadSchools() {
+        try {
+            const { data } = await db.from('dim_school').select('school_id, school_code, school_name_en');
+            if(data) data.forEach(s => {
+                if(s.school_id) {
+                    schoolMap.set(String(s.school_id), s.school_name_en);
+                    if(s.school_code) schoolCodeMap.set(s.school_code, String(s.school_id));
                 }
             });
         } catch(e) {}
@@ -915,10 +929,10 @@
     // --- Bulk Coverage Check ---
     async function checkCoverageForView() {
         const events = calendar.getEvents();
-        // Target: Teacher Leaves, Not Rejected/Cancelled, No status yet
+        // Target: Not Rejected/Cancelled, No status yet
         const targets = events.filter(e => {
             const p = e.extendedProps;
-            return p.isLeave && p.status !== 'Rejected' && p.status !== 'Cancelled' && !p.coverageStatus;
+            return p.status !== 'Rejected' && p.status !== 'Cancelled' && !p.coverageStatus;
         });
 
         if(targets.length === 0) return;
@@ -930,45 +944,59 @@
             let rows = [];
 
             try {
-                if (typeof raw === 'object' && raw.startTime && p.teacher_id) {
-                    // Partial Day
-                    const { data } = await db.from('fact_daily_session')
-                        .select('status, actual_teacher_id')
-                        .eq('original_teacher_id', p.teacher_id)
-                        .eq('date', p.start_date)
-                        .gte('start_time', raw.startTime)
-                        .lte('end_time', raw.endTime);
-                    rows = data || [];
-                } else if (Array.isArray(raw) && raw.length > 0) {
-                     // ID List
-                     const ids = raw.map(s => (typeof s==='string' && s.includes('_')) ? s : null).filter(Boolean);
-                     if(ids.length > 0) {
-                         const { data } = await db.from('fact_daily_session')
+                if (p.isLeave) { // Teacher Logic
+                    if (typeof raw === 'object' && raw.startTime && p.teacher_id) {
+                        // Partial Day
+                        const { data } = await db.from('fact_daily_session')
                             .select('status, actual_teacher_id')
-                            .in('session_id', ids);
-                         rows = data || [];
-                     }
-                }
-
-                if(rows.length > 0) {
-                    const total = rows.length;
-                    let cancelled = 0;
-                    let covered = 0;
-                    
-                    rows.forEach(r => {
-                        if(r.status === 'Cancelled') cancelled++;
-                        else {
-                             // Check substitution
-                             const current = String(r.actual_teacher_id);
-                             const original = String(p.teacher_id);
-                             if(current && current !== 'undefined' && current !== original) covered++;
+                            .eq('original_teacher_id', p.teacher_id)
+                            .eq('date', p.start_date)
+                            .gte('start_time', raw.startTime)
+                            .lte('end_time', raw.endTime);
+                        rows = data || [];
+                    } else if (Array.isArray(raw) && raw.length > 0) {
+                        // ID List
+                        const ids = raw.map(s => (typeof s==='string' && s.includes('_')) ? s : null).filter(Boolean);
+                        if(ids.length > 0) {
+                            const { data } = await db.from('fact_daily_session')
+                                .select('status, actual_teacher_id')
+                                .in('session_id', ids);
+                            rows = data || [];
                         }
-                    });
+                    } else return; // Full Day (maybe check all classes?)
 
-                    // Logic: Green if All Resolved (Covered + Cancelled), Red if All Cancelled
-                    if (cancelled === total) e.setExtendedProp('coverageStatus', 'all_cancelled');
-                    else if ((cancelled + covered) === total) e.setExtendedProp('coverageStatus', 'all_covered');
-                    else if (cancelled > 0 || covered > 0) e.setExtendedProp('coverageStatus', 'partial');
+                    if(rows.length > 0) {
+                        const total = rows.length;
+                        let cancelled = rows.filter(r => r.status === 'Cancelled').length;
+                        // Count covered (substitution)
+                        let covered = rows.filter(r => r.status !== 'Cancelled' && String(r.actual_teacher_id) !== String(p.teacher_id) && String(r.actual_teacher_id) !== 'undefined').length;
+                        
+                        if (cancelled === total) e.setExtendedProp('coverageStatus', 'all_cancelled');
+                        else if ((cancelled + covered) === total) e.setExtendedProp('coverageStatus', 'all_covered');
+                        else if (cancelled > 0 || covered > 0) e.setExtendedProp('coverageStatus', 'partial');
+                    }
+
+                } else { // School Logic
+                     const schoolId = schoolCodeMap.get(p.school_code);
+                     if(schoolId) {
+                         const { data } = await db.from('fact_daily_session')
+                             .select('status')
+                             .eq('school_id', schoolId)
+                             .gte('date', p.start_date)
+                             .lte('date', p.end_date || p.start_date);
+                         
+                         if(data && data.length > 0) {
+                             const total = data.length;
+                             const cancelled = data.filter(s => s.status === 'Cancelled').length;
+                             
+                             if (cancelled === total) e.setExtendedProp('coverageStatus', 'all_cancelled'); // Green
+                             else e.setExtendedProp('coverageStatus', 'partial'); // Orange (Warning)
+                         } else {
+                             // E.g. No classes found -> Maybe already handled or weekend? 
+                             // Treat as neutral or covered?
+                             // Let's leave blank for now unless requested.
+                         }
+                     }
                 }
             } catch(err) { console.warn("Coverage check fail:", err); }
         }));
