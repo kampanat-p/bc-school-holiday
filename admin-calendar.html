@@ -692,6 +692,12 @@
                  loading.classList.add('hidden');
                  
                  if(data && data.length > 0) {
+                     // Sort Chronologically
+                     data.sort((a, b) => {
+                        if (a.date !== b.date) return a.date.localeCompare(b.date);
+                        return (a.start_time || '').localeCompare(b.start_time || '');
+                     });
+
                      // Check for NON-cancelled (Fuzzy match)
                      const active = data.filter(s => !(s.status || '').includes('Cancelled'));
                      if(active.length === 0) {
@@ -707,10 +713,22 @@
                          const isCancelled = (s.status || '').includes('Cancelled');
                          let statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700">Active</span>`;
                          if (isCancelled) statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700">${s.status}</span>`;
+                         
+                         // Date Format: DD-Jan-YYYY
+                         let dateDisplay = s.date;
+                         if(s.date) {
+                             const [y, m, d] = s.date.split('-');
+                             const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(m)-1];
+                             dateDisplay = `${d}-${mon}-${y}`;
+                         }
+
+                         // Teacher Name
+                         const teacherName = teacherMap.get(String(s.actual_teacher_id)) || s.actual_teacher_id || '-';
+
                          return `<tr class="hover:bg-gray-50 border-b">
-                            <td class="px-3 py-2 text-sm font-bold text-blue-600 whitespace-nowrap">${(s.date||'').substring(5)} ${(s.start_time||'').substring(0,5)}</td>
+                            <td class="px-3 py-2 text-sm font-bold text-blue-600 whitespace-nowrap">${dateDisplay} ${(s.start_time||'').substring(0,5)}</td>
                             <td class="px-3 py-2 text-sm text-gray-700">${s.class_name || '-'}</td>
-                            <td class="px-3 py-2 text-sm text-gray-600">${s.actual_teacher_id || '-'} ${statusHtml}</td>
+                            <td class="px-3 py-2 text-sm text-gray-600 truncate max-w-[150px]" title="${teacherName}">${teacherName} ${statusHtml}</td>
                             <td class="px-3 py-2 align-middle">${isCancelled ? '<i class="fas fa-check text-green-500"></i>' : '<i class="fas fa-times text-red-400"></i>'}</td>
                          </tr>`;
                      }).join('');
