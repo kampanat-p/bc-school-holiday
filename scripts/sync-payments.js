@@ -57,14 +57,33 @@ async function updatePaymentLedger(startDate, endDate) {
     // Users
     const { data: users } = await supabase.from('dim_user').select('*');
     const userMap = new Map(); // id -> { name, type }
+    
+    // Stats for debugging
+    let countFT = 0, countPT = 0, countOther = 0;
+
     users.forEach(u => {
-        // Filter only '210' (FT) and '220' (PT)
-        if (u.user_type === '210' || u.user_type === '220') {
-            const name = `${u.firstname_en} ${u.lastname_en}`.trim();
-            const type = (u.user_type === '210') ? 'Full-time' : 'Part-time';
-            userMap.set(u.user_id, { name, type });
+        // [MODIFIED] Removed filter to allow ALL teachers to appear in ledger
+        // Previously: Checked if (u.user_type === '210' || u.user_type === '220')
+        // Now: Map everyone, default unknown types to 'Unassigned'
+        
+        const name = `${u.firstname_en} ${u.lastname_en}`.trim();
+        let type = "Unassigned"; // Default
+
+        if (u.user_type === '210') {
+            type = 'Full-time';
+            countFT++;
+        } else if (u.user_type === '220') {
+            type = 'Part-time';
+            countPT++;
+        } else {
+            // Handle Type 100 or null
+            if (u.user_type) type = `Type ${u.user_type}`;
+            countOther++;
         }
+
+        userMap.set(u.user_id, { name, type });
     });
+    console.log(`👥 Loaded Teachers: ${countFT} FT, ${countPT} PT, ${countOther} Other/Unassigned.`);
 
     // Schools
     const { data: schools } = await supabase.from('dim_school').select('*');
