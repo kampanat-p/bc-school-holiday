@@ -90,11 +90,11 @@
     <div class="flex space-x-6 items-center">
         <!-- Stats -->
         <div class="text-center">
-            <p class="text-xs text-gray-400 font-semibold uppercase">Action Needed</p>
+            <p class="text-xs text-gray-400 font-semibold uppercase">Pending</p>
             <p id="stat-pending" class="text-2xl font-bold text-orange-500">0</p>
         </div>
         <div class="text-center mr-4">
-            <p class="text-xs text-gray-400 font-semibold uppercase">Completed (Mo.)</p>
+            <p class="text-xs text-gray-400 font-semibold uppercase">Complete (Mo.)</p>
             <p id="stat-approved" class="text-2xl font-bold text-green-600">0</p>
         </div>
 
@@ -205,10 +205,9 @@
                  <div class="flex items-center w-full space-x-2">
                     <span class="text-sm font-semibold text-gray-500">Status:</span>
                     <select id="modalStatusSelect" class="flex-1 form-select block w-full pl-3 pr-10 py-2 text-base sm:text-sm rounded-md shadow-sm border bg-white focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
-                        <option value="Pending">Checking / Needs Action</option>
-                        <option value="Approved">Complete (Verified)</option>
+                        <option value="Pending">Pending</option>
+                        <option value="Approved">Complete</option>
                         <option value="Rejected">Reject</option>
-                        <option value="Cancelled">Void</option>
                     </select>
                     <button id="btnUpdateStatus" onclick="saveStatus()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-md shadow-sm transition whitespace-nowrap">
                         <i class="fas fa-save mr-1"></i> Update
@@ -493,12 +492,12 @@
         }
         
         // Coverage Status Icons
-        if (props.coverageStatus === 'all_cancelled') {
-             html += `<i class="fas fa-check-circle text-red-500 ml-1 text-xs bg-white rounded-full" title="All Cancelled"></i>`; 
-        } else if (props.coverageStatus === 'all_covered') {
-             html += `<i class="fas fa-check-circle text-green-500 ml-1 text-xs bg-white rounded-full" title="All Covered"></i>`;
+        if (props.coverageStatus === 'all_cancelled' || props.coverageStatus === 'all_covered' || props.coverageStatus === 'all_resolved') {
+             // GREEN CHECK = Resolved (Covered or Cancelled)
+             html += `<i class="fas fa-check-circle text-green-500 ml-1 text-xs bg-white rounded-full" title="Resolved"></i>`;
         } else if (props.coverageStatus === 'partial') {
-             html += `<i class="fas fa-exclamation-circle text-orange-400 ml-1 text-xs bg-white rounded-full" title="Partially Covered"></i>`;
+             // ORANGE ALERT = Action Needed
+             html += `<i class="fas fa-exclamation-circle text-orange-400 ml-1 text-xs bg-white rounded-full" title="Action Needed"></i>`;
         }
 
         html += `</div>`;
