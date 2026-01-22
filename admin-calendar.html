@@ -48,9 +48,13 @@
     .fc-day-today { background-color: #ecfdf5 !important; }
     .fc-day-today .fc-daygrid-day-number { font-size: 1.5em; color: #059669 !important; }
     
-    /* Loading Animation for Pending */
-    @keyframes pulse-orange { 0%, 100% { border-color: #fdba74; } 50% { border-color: #fff7ed; } }
-    .status-checking { animation: pulse-orange 2s infinite; }
+    /* Loading & Alert Animation */
+    @keyframes pulse-alert {
+        0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); border-color: #f87171; }
+        70% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0); border-color: #f87171; }
+        100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); border-color: #f87171; }
+    }
+    .status-pulse { animation: pulse-alert 2s infinite; border-width: 2px !important; z-index: 20 !important; }
     .fc-day-past { background-color: #f8fafc; }
     .fc-day-past .fc-daygrid-day-number { opacity: 0.4; }
     .fc-day-past .fc-col-header-cell-cushion { opacity: 0.5; }
@@ -201,10 +205,10 @@
                  <div class="flex items-center w-full space-x-2">
                     <span class="text-sm font-semibold text-gray-500">Status:</span>
                     <select id="modalStatusSelect" class="flex-1 form-select block w-full pl-3 pr-10 py-2 text-base sm:text-sm rounded-md shadow-sm border bg-white focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
-                        <option value="Pending">Auto-Detect / In Progress</option>
-                        <option value="Approved">Completed (Manual Override)</option>
-                        <option value="Rejected">Rejected</option>
-                        <option value="Cancelled">Cancelled</option>
+                        <option value="Pending">Checking / Needs Action</option>
+                        <option value="Approved">Complete (Verified)</option>
+                        <option value="Rejected">Reject</option>
+                        <option value="Cancelled">Void</option>
                     </select>
                     <button id="btnUpdateStatus" onclick="saveStatus()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-md shadow-sm transition whitespace-nowrap">
                         <i class="fas fa-save mr-1"></i> Update
@@ -542,24 +546,22 @@
                 const isPending = r.status === 'Pending';
                 
                 let bg, border, text;
-                if (r.status === 'Rejected') { bg = '#f3f4f6'; border = 'transparent'; text = '#9ca3af'; }
-                else if (r.status === 'Cancelled') { bg = '#fef2f2'; border = '#fee2e2'; text = '#991b1b'; } // Add Cancelled style
-                else if (isLeave) {
-                    const type = (r.type || '').toLowerCase();
-                    if(type.includes('sick')) { bg = '#ffe4e6'; border = '#fda4af'; text = '#be123c'; }
-                    else if(type.includes('business')) { bg = '#dbeafe'; border = '#93c5fd'; text = '#1e40af'; }
-                    else { bg = '#e0e7ff'; border = '#a5b4fc'; text = '#3730a3'; }
+                
+                // SIMPLIFIED COLOR SCHEME
+                if (r.status === 'Rejected' || r.status === 'Cancelled') { 
+                    // Dimmed / Gray
+                    bg = '#f3f4f6'; border = '#e5e7eb'; text = '#9ca3af'; 
+                } else if (isLeave) {
+                    // Teacher Leave = Indigo Theme
+                    bg = '#e0e7ff'; border = '#c7d2fe'; text = '#3730a3';
                 } else {
-                    const sessions = parseSessions(r.affected_sessions);
-                    const isPartial = sessions.length > 0 && sessions.length < 8; 
-                    if(isPartial) { bg = '#fef3c7'; border = '#fcd34d'; text = '#92400e'; }
-                    else { bg = '#ccfbf1'; border = '#5eead4'; text = '#115e59'; }
+                    // School Holiday = Teal Theme
+                    bg = '#ccfbf1'; border = '#99f6e4'; text = '#115e59';
                 }
 
                 let classNames = [];
-                // STARTING STATE: If Pending, assume "Checking..." (Neutral Gray/Blue Ring)
-                // The actual Red/Green status will be applied asynchronously by checkCoverageForView
-                if(isPending) classNames.push('status-checking', 'ring-2', 'ring-blue-300', 'ring-dashed', 'z-10');
+                // STARTING STATE: If Pending, assume "Pulse" until proven innocent
+                if(isPending) classNames.push('status-pulse');
 
                 let displayName = r.user_name || "Unknown";
                 if(isLeave && r.teacher_id) {
@@ -1061,17 +1063,11 @@
                         if(p.status === 'Pending') {
                             const isResolved = (cancelled + covered) === total;
                             if(isResolved) {
-                                // COMPLETE / GREEN look
-                                e.setProp('backgroundColor', '#dcfce7'); // green-100
-                                e.setProp('borderColor', '#86efac'); // green-300
-                                e.setProp('textColor', '#166534'); // green-800
-                                e.setProp('classNames', []); // Remove checking ring
+                                // COMPLETE -> Stop Pulse
+                                e.setProp('classNames', []);
                             } else {
-                                // ACTION NEEDED / ORANGE look
-                                e.setProp('backgroundColor', '#ffedd5'); // orange-100
-                                e.setProp('borderColor', '#fdba74'); // orange-300
-                                e.setProp('textColor', '#c2410c'); // orange-700
-                                e.setProp('classNames', ['ring-2', 'ring-red-500', 'font-bold']); // Hard Alert
+                                // ACTION NEEDED -> Keep Pulse
+                                e.setProp('classNames', ['status-pulse']);
                             }
                         }
                     }
@@ -1096,16 +1092,10 @@
                              if(p.status === 'Pending') {
                                  if (cancelled === total) {
                                      // COMPLETE
-                                     e.setProp('backgroundColor', '#dcfce7'); 
-                                     e.setProp('borderColor', '#86efac'); 
-                                     e.setProp('textColor', '#166534'); 
                                      e.setProp('classNames', []);
                                  } else {
                                      // ACTION NEEDED
-                                     e.setProp('backgroundColor', '#ffedd5'); 
-                                     e.setProp('borderColor', '#fdba74'); 
-                                     e.setProp('textColor', '#c2410c'); 
-                                     e.setProp('classNames', ['ring-2', 'ring-red-500', 'font-bold']);
+                                     e.setProp('classNames', ['status-pulse']);
                                  }
                              }
                          } else {
