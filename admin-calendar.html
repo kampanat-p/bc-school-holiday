@@ -48,7 +48,9 @@
     .fc-day-today { background-color: #ecfdf5 !important; }
     .fc-day-today .fc-daygrid-day-number { font-size: 1.5em; color: #059669 !important; }
     
-    /* Dim Past Days - No opacity to avoid stacking context bugs */
+    /* Loading Animation for Pending */
+    @keyframes pulse-orange { 0%, 100% { border-color: #fdba74; } 50% { border-color: #fff7ed; } }
+    .status-checking { animation: pulse-orange 2s infinite; }
     .fc-day-past { background-color: #f8fafc; }
     .fc-day-past .fc-daygrid-day-number { opacity: 0.4; }
     .fc-day-past .fc-col-header-cell-cushion { opacity: 0.5; }
@@ -84,11 +86,11 @@
     <div class="flex space-x-6 items-center">
         <!-- Stats -->
         <div class="text-center">
-            <p class="text-xs text-gray-400 font-semibold uppercase">Pending</p>
+            <p class="text-xs text-gray-400 font-semibold uppercase">Action Needed</p>
             <p id="stat-pending" class="text-2xl font-bold text-orange-500">0</p>
         </div>
         <div class="text-center mr-4">
-            <p class="text-xs text-gray-400 font-semibold uppercase">Approved (Mo.)</p>
+            <p class="text-xs text-gray-400 font-semibold uppercase">Completed (Mo.)</p>
             <p id="stat-approved" class="text-2xl font-bold text-green-600">0</p>
         </div>
 
@@ -199,13 +201,13 @@
                  <div class="flex items-center w-full space-x-2">
                     <span class="text-sm font-semibold text-gray-500">Status:</span>
                     <select id="modalStatusSelect" class="flex-1 form-select block w-full pl-3 pr-10 py-2 text-base sm:text-sm rounded-md shadow-sm border bg-white focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
-                        <option value="Pending">Pending</option>
-                        <option value="Approved">Approved</option>
+                        <option value="Pending">Auto-Detect / In Progress</option>
+                        <option value="Approved">Completed (Manual Override)</option>
                         <option value="Rejected">Rejected</option>
                         <option value="Cancelled">Cancelled</option>
                     </select>
                     <button id="btnUpdateStatus" onclick="saveStatus()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-md shadow-sm transition whitespace-nowrap">
-                        Update
+                        <i class="fas fa-save mr-1"></i> Update
                     </button>
                  </div>
             </div>
@@ -555,7 +557,9 @@
                 }
 
                 let classNames = [];
-                if(isPending) classNames.push('ring-2', 'ring-orange-400', 'ring-dashed', 'z-10');
+                // STARTING STATE: If Pending, assume "Checking..." (Neutral Gray/Blue Ring)
+                // The actual Red/Green status will be applied asynchronously by checkCoverageForView
+                if(isPending) classNames.push('status-checking', 'ring-2', 'ring-blue-300', 'ring-dashed', 'z-10');
 
                 let displayName = r.user_name || "Unknown";
                 if(isLeave && r.teacher_id) {
@@ -1051,6 +1055,25 @@
                         if (cancelled === total) e.setExtendedProp('coverageStatus', 'all_cancelled');
                         else if ((cancelled + covered) === total) e.setExtendedProp('coverageStatus', 'all_covered');
                         else if (cancelled > 0 || covered > 0) e.setExtendedProp('coverageStatus', 'partial');
+                        else e.setExtendedProp('coverageStatus', 'none'); // Explicit none
+
+                        // --- AUTO-UPDATE VISUALS FOR PENDING ---
+                        if(p.status === 'Pending') {
+                            const isResolved = (cancelled + covered) === total;
+                            if(isResolved) {
+                                // COMPLETE / GREEN look
+                                e.setProp('backgroundColor', '#dcfce7'); // green-100
+                                e.setProp('borderColor', '#86efac'); // green-300
+                                e.setProp('textColor', '#166534'); // green-800
+                                e.setProp('classNames', []); // Remove checking ring
+                            } else {
+                                // ACTION NEEDED / ORANGE look
+                                e.setProp('backgroundColor', '#ffedd5'); // orange-100
+                                e.setProp('borderColor', '#fdba74'); // orange-300
+                                e.setProp('textColor', '#c2410c'); // orange-700
+                                e.setProp('classNames', ['ring-2', 'ring-red-500', 'font-bold']); // Hard Alert
+                            }
+                        }
                     }
 
                 } else { // School Logic
@@ -1066,8 +1089,25 @@
                              const total = data.length;
                              const cancelled = data.filter(s => (s.status || '').includes('Cancelled')).length;
                              
-                             if (cancelled === total) e.setExtendedProp('coverageStatus', 'all_cancelled'); // Green
-                             else e.setExtendedProp('coverageStatus', 'partial'); // Orange (Warning)
+                             if (cancelled === total) e.setExtendedProp('coverageStatus', 'all_cancelled'); 
+                             else e.setExtendedProp('coverageStatus', 'partial');
+                             
+                             // --- AUTO-UPDATE VISUALS FOR PENDING (SCHOOL) ---
+                             if(p.status === 'Pending') {
+                                 if (cancelled === total) {
+                                     // COMPLETE
+                                     e.setProp('backgroundColor', '#dcfce7'); 
+                                     e.setProp('borderColor', '#86efac'); 
+                                     e.setProp('textColor', '#166534'); 
+                                     e.setProp('classNames', []);
+                                 } else {
+                                     // ACTION NEEDED
+                                     e.setProp('backgroundColor', '#ffedd5'); 
+                                     e.setProp('borderColor', '#fdba74'); 
+                                     e.setProp('textColor', '#c2410c'); 
+                                     e.setProp('classNames', ['ring-2', 'ring-red-500', 'font-bold']);
+                                 }
+                             }
                          } else {
                              // E.g. No classes found -> Maybe already handled or weekend? 
                              // Treat as neutral or covered?
