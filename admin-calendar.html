@@ -50,11 +50,11 @@
     
     /* Loading & Alert Animation */
     @keyframes pulse-alert {
-        0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); border-color: #f87171; }
-        70% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0); border-color: #f87171; }
-        100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); border-color: #f87171; }
+        0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); border-color: #f87171; transform: scale(1); }
+        50% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.2); border-color: #ef4444; transform: scale(1.005); }
+        100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); border-color: #f87171; transform: scale(1); }
     }
-    .status-pulse { animation: pulse-alert 2s infinite; border-width: 2px !important; z-index: 20 !important; }
+    .status-pulse { animation: pulse-alert 1.5s infinite; border-width: 2px !important; z-index: 20 !important; }
     .fc-day-past { background-color: #f8fafc; }
     .fc-day-past .fc-daygrid-day-number { opacity: 0.4; }
     .fc-day-past .fc-col-header-cell-cushion { opacity: 0.5; }
@@ -89,13 +89,28 @@
 
     <div class="flex space-x-6 items-center">
         <!-- Stats -->
-        <div class="text-center">
-            <p class="text-xs text-gray-400 font-semibold uppercase">Pending</p>
-            <p id="stat-pending" class="text-2xl font-bold text-orange-500">0</p>
-        </div>
-        <div class="text-center mr-4">
-            <p class="text-xs text-gray-400 font-semibold uppercase">Complete (Mo.)</p>
-            <p id="stat-approved" class="text-2xl font-bold text-green-600">0</p>
+        <div class="flex space-x-4 mr-4">
+            <div class="text-center">
+                <p class="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">Active Today</p>
+                <div class="flex items-center space-x-3 bg-gray-50 rounded-lg px-2 py-1 border border-gray-100 shadow-sm">
+                    <div class="text-center px-1">
+                         <span class="block text-lg font-bold text-teal-600 leading-none" id="stat-today-holiday">0</span>
+                         <span class="text-[9px] text-teal-800 uppercase font-bold">School</span>
+                    </div>
+                    <div class="h-6 w-px bg-gray-200"></div>
+                    <div class="text-center px-1">
+                         <span class="block text-lg font-bold text-indigo-600 leading-none" id="stat-today-leave">0</span>
+                         <span class="text-[9px] text-indigo-800 uppercase font-bold">Leave</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="text-center">
+                <p class="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">Action Needed</p>
+                <div class="flex items-center justify-center h-[38px] min-w-[50px] bg-red-50 rounded-lg border border-red-100 shadow-sm">
+                    <p id="stat-pulsing" class="text-2xl font-bold text-red-500 animate-pulse">0</p>
+                </div>
+            </div>
         </div>
 
         <!-- Toolbar -->
@@ -129,7 +144,7 @@
   <div id="eventModal" class="fixed inset-0 z-50 hidden">
     <div class="absolute inset-0 bg-black bg-opacity-40 backdrop-blur-sm modal-backdrop" onclick="closeModal()"></div>
     
-    <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl w-full max-w-2xl modal-content overflow-hidden">
+    <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl w-full max-w-4xl modal-content overflow-hidden">
         
         <!-- Modal Header -->
         <div id="modalHeader" class="p-6 text-white bg-gray-600 transition-colors duration-300">
@@ -277,6 +292,7 @@
     let schoolCodeMap = new Map(); // code -> id
     let activeAlarms = [];
     let currentFilter = 'all'; // 'all', 'school', 'teacher'
+    let globalRequests = []; // Store for day render
     const db = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
 
     // --- Init ---
@@ -300,7 +316,8 @@
             },
             eventClick: function(info) { openModal(info.event); },
             events: fetchEvents,
-            eventContent: renderEventContent
+            eventContent: renderEventContent,
+            datesSet: function() { setTimeout(renderDailyStats, 100); }
         });
         calendar.render();
 
@@ -403,7 +420,7 @@
         if(match) {
             // Check if we already fired this minute? (Simple debounce: check Seconds < 35)
             // Or just check Pending count
-            const pendingCount = parseInt(document.getElementById('stat-pending').innerText || '0');
+            const pendingCount = parseInt(document.getElementById('stat-pulsing').innerText || '0');
             
             if(pendingCount > 0) {
                 console.log(`⏰ ALARM: ${currentStr} - Pending: ${pendingCount}. Sending Webhook.`);
@@ -414,7 +431,7 @@
 
     async function manualTrigger() {
         if(!confirm("Send notification to Discord now?")) return;
-        const pendingCount = parseInt(document.getElementById('stat-pending').innerText || '0');
+        const pendingCount = parseInt(document.getElementById('stat-pulsing').innerText || '0');
         if(pendingCount === 0) { alert("No pending tickets to notify about."); return; }
         await sendDiscordNotification(pendingCount);
         alert("Notification Sent!");
@@ -620,8 +637,81 @@
     }
 
     function updateStats(data) {
-        document.getElementById('stat-pending').innerText = data.filter(d => d.status === 'Pending').length;
-        document.getElementById('stat-approved').innerText = data.filter(d => d.status === 'Approved' && new Date(d.start_date).getMonth() === new Date().getMonth()).length;
+        globalRequests = data; // Save for renderDailyStats
+        
+        // 1. Pulsing (Pending)
+        const pending = data.filter(d => d.status === 'Pending').length;
+        const pulsingEl = document.getElementById('stat-pulsing');
+        if(pulsingEl) pulsingEl.innerText = pending;
+        
+        // 2. Today's Stats
+        const now = new Date();
+        const todayStr = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+        
+        const activeToday = data.filter(r => {
+            if(r.status === 'Rejected' || r.status === 'Cancelled') return false;
+            const end = r.end_date || r.start_date;
+            return r.start_date <= todayStr && end >= todayStr;
+        });
+        
+        const schoolCount = activeToday.filter(r => r.request_category !== 'Teacher' && r.school_code !== 'N/A').length;
+        const leaveCount = activeToday.filter(r => r.request_category === 'Teacher' || r.school_code === 'N/A').length;
+        
+        const scEl = document.getElementById('stat-today-holiday');
+        if(scEl) scEl.innerText = schoolCount;
+        const lvEl = document.getElementById('stat-today-leave');
+        if(lvEl) lvEl.innerText = leaveCount;
+        
+        // Trigger Daily Stats Render
+        setTimeout(renderDailyStats, 50);
+    }
+
+    function renderDailyStats() {
+        // Clear old stats
+        document.querySelectorAll('.day-stat-badge').forEach(e => e.remove());
+        
+        if(!globalRequests || globalRequests.length === 0) return;
+
+        // Group by Date
+        const stats = new Map(); // Date -> { s:0, l:0 }
+        
+        globalRequests.forEach(r => {
+             if(r.status === 'Rejected' || r.status === 'Cancelled') return;
+
+             const isLeave = r.request_category === 'Teacher' || r.school_code === 'N/A';
+             // Expand date range
+             let curr = new Date(r.start_date);
+             const end = new Date(r.end_date || r.start_date);
+             
+             let loopLimit = 0;
+             while(curr <= end && loopLimit < 60) {
+                 const dStr = curr.toISOString().split('T')[0];
+                 if(!stats.has(dStr)) stats.set(dStr, { s:0, l:0 });
+                 const entry = stats.get(dStr);
+                 if(isLeave) entry.l++; else entry.s++;
+                 
+                 curr.setDate(curr.getDate() + 1);
+                 loopLimit++;
+             }
+        });
+
+        // Inject into DOM
+        stats.forEach((val, date) => {
+             // Find Day Cell Number container
+             const cell = document.querySelector(`.fc-day[data-date="${date}"] .fc-daygrid-day-top`); 
+             if(cell) {
+                 const badge = document.createElement('div');
+                 badge.className = 'day-stat-badge flex space-x-1 absolute top-2 left-10 pointer-events-none opacity-90 z-0'; 
+                 // Positioning: Top-2, Left-10 (Next to date number usually)
+                 
+                 badge.innerHTML = `
+                    ${val.s > 0 ? `<span class="bg-teal-50 text-teal-700 text-[9px] font-bold px-1.5 py-0.5 rounded-full ring-1 ring-teal-200">${val.s} SCH</span>` : ''}
+                    ${val.l > 0 ? `<span class="bg-indigo-50 text-indigo-700 text-[9px] font-bold px-1.5 py-0.5 rounded-full ring-1 ring-indigo-200">${val.l} LEAVE</span>` : ''}
+                 `;
+                 cell.style.position = 'relative'; 
+                 cell.appendChild(badge);
+             }
+        });
     }
 
     async function openModal(event) {
@@ -733,8 +823,8 @@
                          return `<tr class="hover:bg-gray-50 border-b">
                             <td class="px-3 py-2 text-sm font-bold text-blue-600 whitespace-nowrap">${dateDisplay} ${(s.start_time||'').substring(0,5)}</td>
                             <td class="px-3 py-2 text-sm text-gray-700">${s.class_name || '-'}</td>
-                            <td class="px-3 py-2 text-sm text-gray-600 truncate max-w-[150px]" title="${teacherName}">${teacherName} ${statusHtml}</td>
-                            <td class="px-3 py-2 align-middle">${isCancelled ? '<i class="fas fa-check text-green-500"></i>' : '<i class="fas fa-times text-red-400"></i>'}</td>
+                            <td class="px-3 py-2 text-sm text-gray-600 truncate max-w-[200px]" title="${teacherName}">${teacherName} ${statusHtml}</td>
+                            <td class="px-3 py-2 align-middle text-xs font-bold whitespace-nowrap">${isCancelled ? '<span class="text-green-600"><i class="fas fa-check-circle lg:mr-1"></i><span class="hidden lg:inline">Resolved</span></span>' : '<span class="text-red-500"><i class="fas fa-exclamation-circle lg:mr-1"></i><span class="hidden lg:inline">Active</span></span>'}</td>
                          </tr>`;
                      }).join('');
                  } else {
@@ -986,9 +1076,9 @@
                 // Remove Pending Ring if not pending
                 let classNames = [...evt.classNames];
                 if(newStatus !== 'Pending') {
-                    classNames = classNames.filter(c => !c.includes('ring'));
+                    classNames = []; // Stop Pulse
                 } else {
-                    if(!classNames.includes('ring-2')) classNames.push('ring-2', 'ring-orange-400', 'ring-dashed', 'z-10');
+                    if(!classNames.includes('status-pulse')) classNames.push('status-pulse');
                 }
                 evt.setProp('classNames', classNames);
             }
