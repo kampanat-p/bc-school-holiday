@@ -150,8 +150,8 @@ async function processSync(targetDate, userMap, schoolMap) {
 
     console.log(`📅 Syncing Date: ${dbDateStr} (URL: ${urlDateStr})`);
 
-    // Fetch JSON
-    const url = `${DATA_URL_BASE}?date=${urlDateStr}`;
+    // [FIX 1] Add Cache Busting (_ = timestamp)
+    const url = `${DATA_URL_BASE}?date=${urlDateStr}&_=${Date.now()}`;
     const res = await client.get(url, {
         headers: {
             'X-Requested-With': 'XMLHttpRequest',
@@ -193,10 +193,12 @@ async function processSync(targetDate, userMap, schoolMap) {
         let status = "Normal";
         let actualWebId = webTeacherId;
         
-        // Check Cover
-        if (s.live_teacher_status === 'covered' && s.live_teacher_id) {
+        // [FIX 2] More robust check (Case insensitive + loose type check)
+        const rawStatus = (s.live_teacher_status || '').toLowerCase();
+        if (rawStatus === 'covered' && s.live_teacher_id) {
             actualWebId = String(s.live_teacher_id);
             status = "Substituted";
+            console.log(`🔍 Cover Detected [${s.id}]: ${webTeacherId} -> ${actualWebId}`);
         }
 
         // Check Cancel (Raw Status)
@@ -297,14 +299,21 @@ async function processSync(targetDate, userMap, schoolMap) {
 
     // --- BATCH UPSERT TO SUPABASE ---
     if (records.length > 0) {
+        // [FIX 3] Deduplicate records by session_id to prevent "ON CONFLICT DO UPDATE command cannot affect row a second time"
+        const uniqueRecords = Array.from(new Map(records.map(item => [item.session_id, item])).values());
+        
+        if (uniqueRecords.length !== records.length) {
+            console.warn(`⚠️ Filtered out ${records.length - uniqueRecords.length} duplicate sessions from API response.`);
+        }
+
         const { error } = await supabase
             .from('fact_daily_session')
-            .upsert(records, { onConflict: 'session_id' });
+            .upsert(uniqueRecords, { onConflict: 'session_id' });
 
         if (error) {
             console.error("🔥 Supabase Error:", error.message);
         } else {
-            console.log(`💾 Successfully upserted ${records.length} records.`);
+            console.log(`💾 Successfully upserted ${uniqueRecords.length} records.`);
         }
     }
 }
