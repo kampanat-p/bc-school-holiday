@@ -21,6 +21,8 @@
      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
      /* Custom Type Buttons */
      .type-btn { transition: all 0.2s; }
+     .animate-fade-in { animation: fadeIn 0.3s ease-in-out; }
+     @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
   </style>
 </head>
 <body class="bg-gray-100 min-h-screen pb-10">
@@ -87,10 +89,22 @@
 
         <!-- Date & Time -->
         <div class="bg-gray-50 p-4 rounded-xl border border-gray-100 shadow-sm">
-            <label class="block text-sm font-semibold text-gray-700 mb-2">📅 Date & Time</label>
+            <div class="flex justify-between items-center mb-2">
+                <label class="block text-sm font-semibold text-gray-700">📅 Date & Time</label>
+                <label class="flex items-center space-x-2 text-xs text-gray-500 cursor-pointer">
+                    <input type="checkbox" id="multiDayCheck" class="rounded text-blue-600" onchange="toggleMultiDay()">
+                    <span>Multi-day?</span>
+                </label>
+            </div>
+
             <input type="date" id="leaveDate" class="w-full p-3 bg-white border border-gray-300 rounded-lg mb-3" onchange="checkConflicts()">
             
-            <div class="flex gap-2">
+            <div id="endDateContainer" class="hidden mb-3">
+                 <label class="block text-xs text-gray-500 mb-1">To Date (End)</label>
+                 <input type="date" id="endDate" class="w-full p-3 bg-white border border-gray-300 rounded-lg" onchange="checkConflicts()">
+            </div>
+            
+            <div id="timeContainer" class="flex gap-2">
                 <div class="flex-1">
                     <label class="text-xs text-gray-500 mb-1 block">Start Time</label>
                     <input type="time" id="startTime" value="08:00" class="w-full p-2 bg-white border border-gray-300 rounded-lg" onchange="checkConflicts()">
@@ -306,6 +320,21 @@
     });
 
     // --- Interaction ---
+    window.toggleMultiDay = () => {
+        const isMulti = document.getElementById('multiDayCheck').checked;
+        const endCont = document.getElementById('endDateContainer');
+        const timeCont = document.getElementById('timeContainer');
+        
+        if(isMulti) {
+            endCont.classList.remove('hidden');
+            timeCont.classList.add('opacity-50', 'pointer-events-none'); // Disable Time
+        } else {
+            endCont.classList.add('hidden');
+            timeCont.classList.remove('opacity-50', 'pointer-events-none');
+            document.getElementById('endDate').value = ""; // Reset
+        }
+    };
+
     window.setType = (type) => {
         state.selectedType = type;
         document.querySelectorAll('.type-btn').forEach(b => {
@@ -322,6 +351,8 @@
     window.checkConflicts = async () => {
         let tid = document.getElementById('teacherSelect').value;
         const date = document.getElementById('leaveDate').value;
+        const isMulti = document.getElementById('multiDayCheck').checked;
+        const endDate = document.getElementById('endDate').value;
         const manualName = document.getElementById('teacherSearch').value.trim();
 
         // If no ID but text exists, assume manual
@@ -335,19 +366,19 @@
         box.classList.add('hidden');
         msg.innerHTML = "";
         
-        // Skip conflict check for manual names OR use Name as lookup?
-        // Let's rely on ID if available. If manual, we can't easily check IDs.
-        // We could search by name but it's unreliable. Let's skip for manual for now.
         if (tid === "MANUAL") return;
 
+        // Simple Check: Just check Start Date collision for now
+        // (Improving this to check full range requires complex range matching)
+        
         // 1. Check Existing Requests (Pending) in requests_log
         const { data: reqs } = await state.supabase.from('requests_log')
             .select('user_name, created_at, type, affected_sessions, reason')
             .eq('teacher_id', tid)
             .eq('start_date', date)
-            .neq('status', 'Rejected'); // Show for Pending or Approved
+            .neq('status', 'Rejected'); 
             
-        // 2. Check Confirmed Unavailability (fact_teacher_unavailability)
+        // 2. Check Confirmed Unavailability
         const { data: unav } = await state.supabase.from('fact_teacher_unavailability')
             .select('*')
             .eq('teacher_id', tid)
@@ -400,8 +431,7 @@
         }
 
         if(warnings.length > 0) {
-            // box title update
-            box.querySelector('h3').innerText = `Run into ${warnings.length} Existing Record(s)`;
+            box.querySelector('h3').innerText = `Run into ${warnings.length} Existing Record(s) on Start Date`;
             msg.innerHTML = warnings.join("");
             box.classList.remove('hidden');
         }
@@ -413,9 +443,16 @@
         const manualName = document.getElementById('teacherSearch').value.trim();
         const date = document.getElementById('leaveDate').value;
         const reason = document.getElementById('reason').value;
-        const startT = document.getElementById('startTime').value;
-        const endT = document.getElementById('endTime').value;
         
+        const isMulti = document.getElementById('multiDayCheck').checked;
+        const endDateInput = document.getElementById('endDate').value;
+        
+        // Time logic: If multi-day, enforce Full Day. Else use input.
+        const startT = isMulti ? "00:00" : document.getElementById('startTime').value;
+        const endT = isMulti ? "23:59" : document.getElementById('endTime').value;
+        
+        const finalEndDate = isMulti ? endDateInput : date;
+
         // Manual Teacher Logic
         let teacherName = "";
         let isManual = false;
@@ -432,9 +469,11 @@
             return alert("Please select or type a Teacher.");
         }
 
-        if(!date) return alert("Please select a Date.");
+        if(!date) return alert("Please select a Start Date.");
+        if(isMulti && !endDateInput) return alert("Please select an End Date.");
+        if(isMulti && endDateInput < date) return alert("End Date cannot be before Start Date.");
 
-        let confirmMsg = `Submit Request?\n\nTeacher: ${teacherName}\nDate: ${date}\nTime: ${startT}-${endT}\nType: ${state.selectedType}`;
+        let confirmMsg = `Submit Request?\n\nTeacher: ${teacherName}\nDate: ${date} ${isMulti ? 'to ' + finalEndDate : ''}\nTime: ${startT}-${endT}\nType: ${state.selectedType}`;
         if(isManual) confirmMsg += `\n\n⚠️ Note: "${manualName}" is not in the system list. It will be saved as a partial/unmapped record.`;
 
         if(!confirm(confirmMsg)) return;
@@ -449,7 +488,7 @@
                 teacher_id: tid, 
                 school_code: "N/A", 
                 start_date: date,
-                end_date: date, 
+                end_date: finalEndDate, 
                 reason: reason || "-",
                 status: 'Pending',
                 type: state.selectedType, 
@@ -461,7 +500,7 @@
             if(error) throw error;
 
             // Notify Discord
-            await notifyDiscord(payload, teacherName, startT, endT);
+            await notifyDiscord(payload, teacherName, startT, endT, isMulti);
 
             alert("✅ Request Submitted Successfully!");
             window.location.reload();
@@ -472,20 +511,23 @@
         }
     };
 
-    async function notifyDiscord(data, teacherName, startT, endT) {
+    async function notifyDiscord(data, teacherName, startT, endT, isMulti) {
+        let dateStr = data.start_date;
+        if(isMulti) dateStr += ` ➡ ${data.end_date}`;
+
         const embed = {
             title: "🛌 Teacher Leave Request",
             description: "A new leave request has been submitted.",
             color: 16763904, // Yellow/Orange
             fields: [
                 { name: "👤 Teacher", value: teacherName, inline: true },
-                { name: "📅 Date", value: data.start_date, inline: true },
+                { name: "📅 Date", value: dateStr, inline: true },
                 { name: "⏰ Time", value: `${startT} - ${endT}`, inline: true },
                 { name: "📌 Type", value: data.type, inline: true },
                 { name: "📝 Reason", value: data.reason, inline: false },
                 { name: "👮 Reporter", value: data.user_name, inline: false }
             ],
-            footer: { text: "Braincloud HR • v1.0" },
+            footer: { text: "Braincloud HR • v1.1" },
             timestamp: new Date().toISOString()
         };
 
