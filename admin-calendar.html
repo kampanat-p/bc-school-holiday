@@ -779,11 +779,33 @@
              const schoolId = schoolCodeMap.get(p.school_code);
              if(schoolId) {
                  loading.classList.remove('hidden'); container.classList.remove('hidden');
-                 const { data } = await db.from('fact_daily_session')
-                     .select('*')
-                     .eq('school_id', schoolId)
-                     .gte('date', p.start_date)
-                     .lte('date', p.end_date || p.start_date);
+                 
+                 // Smart Logic: Check for Affected Sessions List First
+                 let data = [];
+                 let isSpecific = false;
+                 
+                 const raw = parseSessions(p.affected_sessions);
+
+                 if (Array.isArray(raw) && raw.length > 0) {
+                     // 1. Partial Mode: Fetch specific IDs
+                     isSpecific = true;
+                     const ids = raw.filter(x => typeof x === 'string' && x.length > 5); // Basic validation
+                     if(ids.length > 0) {
+                         const { data: partialData } = await db.from('fact_daily_session').select('*').in('session_id', ids);
+                         data = partialData || [];
+                     }
+                 } 
+                 
+                 if (!isSpecific || data.length === 0) {
+                     // 2. Fallback: Fetch ALL for school/date range
+                     const { data: fullData } = await db.from('fact_daily_session')
+                        .select('*')
+                        .eq('school_id', schoolId)
+                        .gte('date', p.start_date)
+                        .lte('date', p.end_date || p.start_date);
+                     data = fullData || [];
+                 }
+                 
                  loading.classList.add('hidden');
                  
                  if(data && data.length > 0) {
