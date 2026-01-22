@@ -91,7 +91,7 @@
         
         <div id="endDateContainer" class="hidden animate-fade-in">
              <label class="block text-xs font-semibold text-gray-500 mb-1">To Date</label>
-             <input type="date" id="endDate" class="w-full p-2 border border-gray-300 rounded-lg">
+             <input type="date" id="endDate" class="w-full p-2 border border-gray-300 rounded-lg" onchange="checkScheduleCondition()">
         </div>
       </div>
 
@@ -264,11 +264,15 @@
         const code = document.getElementById('schoolSelect').value;
         const date = document.getElementById('startDate').value;
         const isMulti = document.getElementById('multiDayCheck').checked;
+        const endDate = document.getElementById('endDate').value;
         
-        // Only show schedule if Single Day AND School Selected AND Date Selected
-        if (!isMulti && date && code) {
+        // Condition: (Single & Date) OR (Multi & Start & End)
+        const validSingle = !isMulti && date && code;
+        const validMulti = isMulti && date && endDate && code;
+
+        if (validSingle || validMulti) {
              document.getElementById('scheduleSection').classList.remove('hidden');
-             loadSchedule(code, date);
+             loadSchedule(code, date, isMulti ? endDate : null);
         } else {
              document.getElementById('scheduleSection').classList.add('hidden');
              state.sessions.clear();
@@ -284,31 +288,94 @@
          checkScheduleCondition();
     }
 
-    async function loadSchedule(code, date) {
+    async function loadSchedule(code, startDate, endDate = null) {
         const list = document.getElementById('scheduleList');
         const msg = document.getElementById('scheduleMsg');
-        list.innerHTML = `<div class="text-center py-4"><i class="fas fa-spinner fa-spin text-green-500"></i> Loading...</div>`;
+        list.innerHTML = `<div class="text-center py-8"><i class="fas fa-spinner fa-spin text-green-500 text-2xl"></i><p class="text-xs text-gray-500 mt-2">Fetching classes...</p></div>`;
         msg.classList.add('hidden');
         state.sessions.clear();
 
         const school = state.schools[code];
         if(!school) return;
 
-        // Fetch Classes
-        const { data } = await state.supabase.from('fact_daily_session')
-           .select('session_id, class_name, start_time, end_time, status, actual_teacher_id, original_teacher_id')
+        // Query
+        let query = state.supabase.from('fact_daily_session')
+           .select('session_id, class_name, start_time, end_time, status, actual_teacher_id, original_teacher_id, date')
            .eq('school_id', school.school_id)
-           .eq('date', date)
+           .order('date') // Sort by Date first
            .order('start_time');
+
+        if(endDate) {
+            query = query.gte('date', startDate).lte('date', endDate);
+        } else {
+            query = query.eq('date', startDate);
+        }
+
+        const { data } = await query;
            
         list.innerHTML = "";
         
         if(!data || data.length === 0) {
             msg.classList.remove('hidden');
+            msg.innerText = "No classes found for the selected range.";
             return;
         }
 
-        data.forEach(s => {
+        // --- GROUPING LOGIC ---
+        // Group by Date: { "2024-01-01": [sessions], ... }
+        const groups = data.reduce((acc, s) => {
+            if(!acc[s.date]) acc[s.date] = [];
+            acc[s.date].push(s);
+            return acc;
+        }, {});
+
+        const dates = Object.keys(groups);
+        const isMultiDay = dates.length > 1;
+
+        dates.forEach((dateStr, index) => {
+            const sessions = groups[dateStr];
+            
+            // Container for Day
+            const dayContainer = document.createElement('div');
+            
+            if(isMultiDay) {
+                // Accordion Header
+                // Format Date: YYYY-MM-DD -> DD/MM
+                const [y, m, d] = dateStr.split('-');
+                const displayDate = `${d}/${m}/${y}`;
+                const isOpen = index === 0; // Only open first day by default
+
+                dayContainer.className = "border rounded-xl mb-3 overflow-hidden bg-white shadow-sm";
+                dayContainer.innerHTML = `
+                    <div class="bg-gray-100 p-3 flex justify-between items-center select-none" >
+                        <div class="flex items-center space-x-2 cursor-pointer flex-1" onclick="toggleDayAccordion('${dateStr}')">
+                            <i id="icon-${dateStr}" class="fas fa-chevron-${isOpen ? 'down' : 'right'} text-gray-400 text-xs transition-transform"></i>
+                            <span class="font-bold text-gray-700 text-sm">📅 ${displayDate}</span>
+                            <span class="text-xs text-gray-400 bg-gray-200 px-2 py-0.5 rounded-full">${sessions.length}</span>
+                        </div>
+                        <button type="button" onclick="toggleSelectAllDay('${dateStr}')" class="text-xs text-green-600 font-bold hover:bg-green-100 px-2 py-1 rounded transition">
+                            SELECT ALL
+                        </button>
+                    </div>
+                    <div id="body-${dateStr}" class="p-2 space-y-2 bg-gray-50/50 ${isOpen ? '' : 'hidden'} transition-all">
+                        <!-- Classes go here -->
+                    </div>
+                `;
+                list.appendChild(dayContainer);
+                
+                const body = document.getElementById(`body-${dateStr}`);
+                renderSessionCards(sessions, body, school, dateStr);
+
+            } else {
+                // Single Day - No Accordion, just render
+                renderSessionCards(sessions, list, school, dateStr);
+            }
+        });
+    }
+
+    // Helper: Render list of cards into a specific container
+    function renderSessionCards(sessions, container, school, dateStr) {
+        sessions.forEach(s => {
             const isCancelled = s.status && s.status.toLowerCase().includes('cancel');
             
             // Teacher Mapping
@@ -326,66 +393,124 @@
             const card = document.createElement('div');
             
             // Default Classes
-            card.className = `session-card rounded-lg p-3 flex justify-between items-center cursor-pointer mb-2 hover:shadow-md transition-all border`;
+            card.className = `session-card rounded-lg p-3 flex justify-between items-center cursor-pointer mb-2 hover:shadow-md transition-all border bg-white session-item-${dateStr}`;
+            card.dataset.id = s.session_id; // For bulk selection
             
             if (isCancelled) {
-                // Cancelled Style
                 card.style.cssText = `background: white; border: 2px dashed #d32f2f; color: #d32f2f; opacity: 0.6; pointer-events: none;`;
             } else {
-                // Group Color Style
-                card.style.backgroundColor = style.bg;
+                // Group Color Style (Border only for cleaner look?)
+                card.style.borderLeft = `4px solid ${style.bg}`; // Color code on left
                 card.style.borderColor = style.border;
-                card.style.color = "#333"; // Default text dark
                 
                 if (isCover) {
-                    card.style.borderTop = "4px solid #00E676"; // Green Top
-                } else {
-                    card.style.borderWidth = "1px"; // Normal
+                    card.style.borderRight = "4px solid #00E676"; 
                 }
             }
 
             // Title Color from School Group
-            const titleColor = isCancelled ? "#d32f2f" : style.text;
+            const titleColor = isCancelled ? "#d32f2f" : "#374151";
+
+            // Store Colors for Toggle
+            card.dataset.originalBg = isCancelled ? 'white' : style.bg;
+            card.dataset.originalBorder = isCancelled ? '#d32f2f' : style.border;
 
             // Content
             card.innerHTML = `
                 <div>
-                   <div class="font-bold text-lg" style="color:${titleColor}">${s.class_name}</div>
-                   <div class="text-xs mt-1 flex items-center gap-1 opacity-80">
+                   <div class="font-bold text-sm" style="color:${titleColor}">${s.class_name}</div>
+                   <div class="text-xs mt-1 flex items-center gap-1 opacity-80 text-gray-500">
                       <i class="far fa-clock"></i> ${s.start_time.slice(0,5)} - ${s.end_time.slice(0,5)}
                    </div>
-                   <div class="text-sm mt-1 flex items-center gap-1">
+                   <div class="text-[11px] mt-1 flex items-center gap-1 text-gray-600">
                       <i class="far fa-user opacity-50"></i> ${teacherDisplay}
                    </div>
                 </div>
                 <!-- Check Icon (Hidden by default) -->
-                <div class="check-icon hidden text-red-500 bg-white rounded-full p-1 shadow">
-                    <i class="fas fa-check-circle fa-lg"></i>
+                <div class="check-icon hidden text-red-500 bg-red-50 rounded-full p-1 shadow-sm border border-red-100">
+                    <i class="fas fa-check"></i>
                 </div>
             `;
             
             // Interaction
             if(!isCancelled) {
-                card.onclick = () => {
-                    if(state.sessions.has(s.session_id)) {
-                        state.sessions.delete(s.session_id);
-                        card.classList.remove('selected');
-                    } else {
-                        // Store full details for Discord
-                        state.sessions.set(s.session_id, {
-                            id: s.session_id,
-                            className: s.class_name,
-                            time: `${s.start_time.slice(0,5)} - ${s.end_time.slice(0,5)}`,
-                            teacher: actName,
-                            originalTeacher: isCover ? orgName : null,
-                            isCover: isCover
-                        });
-                        card.classList.add('selected');
-                    }
+                // Bind Data
+                card._sessionData = {
+                    id: s.session_id,
+                    className: s.class_name,
+                    time: `${s.start_time.slice(0,5)} - ${s.end_time.slice(0,5)}`,
+                    teacher: actName,
+                    originalTeacher: isCover ? orgName : null,
+                    isCover: isCover,
+                    date: dateStr 
                 };
+
+                card.onclick = () => toggleSession(card);
             }
             
-            list.appendChild(card);
+            container.appendChild(card);
+        });
+    }
+
+    // New Helper: Toggle Single Session
+    function toggleSession(card) {
+        const s = card._sessionData;
+        if(state.sessions.has(s.id)) {
+            state.sessions.delete(s.id);
+            card.classList.remove('selected', 'border-red-500', 'bg-red-50');
+            // Restore Original Style
+            card.style.backgroundColor = card.dataset.originalBg;
+            card.style.borderColor = card.dataset.originalBorder;
+            
+            card.querySelector('.check-icon').classList.add('hidden');
+        } else {
+            state.sessions.set(s.id, s);
+            card.classList.add('selected', 'border-red-500', 'bg-red-50');
+            // Apply Selection Style (Inline to override School Group)
+            card.style.backgroundColor = "#FEF2F2";
+            card.style.borderColor = "#EF4444";
+            
+            card.querySelector('.check-icon').classList.remove('hidden');
+        }
+    }
+
+    // New Helper: Accordion Toggle
+    window.toggleDayAccordion = (dateStr) => {
+        const body = document.getElementById(`body-${dateStr}`);
+        const icon = document.getElementById(`icon-${dateStr}`);
+        if(body.classList.contains('hidden')) {
+            body.classList.remove('hidden');
+            icon.classList.remove('fa-chevron-right');
+            icon.classList.add('fa-chevron-down');
+        } else {
+            body.classList.add('hidden');
+            icon.classList.add('fa-chevron-right');
+            icon.classList.remove('fa-chevron-down');
+        }
+    }
+
+    // New Helper: Select ALL in Day
+    window.toggleSelectAllDay = (dateStr) => {
+        const cards = document.querySelectorAll(`.session-item-${dateStr}`);
+        if(cards.length === 0) return;
+
+        // Check if all selected?
+        let allSelected = true;
+        cards.forEach(c => {
+             if(c.style.pointerEvents === 'none') return; // Skip cancelled
+             if(!state.sessions.has(c._sessionData.id)) allSelected = false;
+        });
+
+        // Toggle
+        cards.forEach(c => {
+             if(c.style.pointerEvents === 'none') return;
+             if(allSelected) {
+                 // Deselect All
+                 if(state.sessions.has(c._sessionData.id)) toggleSession(c);
+             } else {
+                 // Select All
+                 if(!state.sessions.has(c._sessionData.id)) toggleSession(c);
+             }
         });
     }
 
