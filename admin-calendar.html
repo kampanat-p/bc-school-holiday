@@ -105,12 +105,7 @@
                 </div>
             </div>
             
-            <div class="text-center">
-                <p class="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">Action Needed</p>
-                <div class="flex items-center justify-center h-[38px] min-w-[50px] bg-red-50 rounded-lg border border-red-100 shadow-sm">
-                    <p id="stat-pulsing" class="text-2xl font-bold text-red-500 animate-pulse">0</p>
-                </div>
-            </div>
+            <!-- Removed 'Action Needed' Stats as per request -->
         </div>
 
         <!-- Toolbar -->
@@ -420,7 +415,7 @@
         if(match) {
             // Check if we already fired this minute? (Simple debounce: check Seconds < 35)
             // Or just check Pending count
-            const pendingCount = parseInt(document.getElementById('stat-pulsing').innerText || '0');
+            const pendingCount = window.pendingRequestsCount || 0;
             
             if(pendingCount > 0) {
                 console.log(`⏰ ALARM: ${currentStr} - Pending: ${pendingCount}. Sending Webhook.`);
@@ -431,7 +426,7 @@
 
     async function manualTrigger() {
         if(!confirm("Send notification to Discord now?")) return;
-        const pendingCount = parseInt(document.getElementById('stat-pulsing').innerText || '0');
+        const pendingCount = window.pendingRequestsCount || 0;
         if(pendingCount === 0) { alert("No pending tickets to notify about."); return; }
         await sendDiscordNotification(pendingCount);
         alert("Notification Sent!");
@@ -639,10 +634,9 @@
     function updateStats(data) {
         globalRequests = data; // Save for renderDailyStats
         
-        // 1. Pulsing (Pending)
+        // 1. Pulsing (Pending) Count
         const pending = data.filter(d => d.status === 'Pending').length;
-        const pulsingEl = document.getElementById('stat-pulsing');
-        if(pulsingEl) pulsingEl.innerText = pending;
+        window.pendingRequestsCount = pending;
         
         // 2. Today's Stats
         const now = new Date();
