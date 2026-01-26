@@ -118,7 +118,7 @@ async function processSync(userMap, isBackfill) {
         return;
     }
 
-    const upsertPayload = [];
+    const payloadMap = new Map();
     const nowISO = new Date().toISOString();
 
     // Iterate Semesters
@@ -141,7 +141,7 @@ async function processSync(userMap, isBackfill) {
 
                 const compositeId = `${uId}_${item.u_start_date}_${item.u_start_time}`;
 
-                upsertPayload.push({
+                payloadMap.set(compositeId, {
                     unavailability_id: compositeId,
                     teacher_id: teacherDbId,
                     start_date: item.u_start_date,
@@ -156,6 +156,8 @@ async function processSync(userMap, isBackfill) {
             });
         }
     }
+
+    const upsertPayload = Array.from(payloadMap.values());
 
     // --- BATCH UPSERT TO SUPABASE ---
     if (upsertPayload.length > 0) {
