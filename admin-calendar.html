@@ -1180,11 +1180,32 @@
                 } else { // School Logic
                      const schoolId = schoolCodeMap.get(p.school_code);
                      if(schoolId) {
-                         const { data } = await db.from('fact_daily_session')
-                             .select('status')
-                             .eq('school_id', schoolId)
-                             .gte('date', p.start_date)
-                             .lte('date', p.end_date || p.start_date);
+                         // [FIX] Smart Logic: Handle Partial Tickets correctly
+                         let data = [];
+                         let isSpecific = false;
+                         const raw = parseSessions(p.affected_sessions);
+
+                         // 1. Try Specific IDs first
+                         if (Array.isArray(raw) && raw.length > 0) {
+                             const ids = raw.filter(x => typeof x === 'string' && x.length > 5);
+                             if(ids.length > 0) {
+                                 isSpecific = true;
+                                 const { data: specificData } = await db.from('fact_daily_session')
+                                    .select('status')
+                                    .in('session_id', ids);
+                                 data = specificData || [];
+                             }
+                         }
+
+                         // 2. Fallback to Full Day if not specific
+                         if (!isSpecific) {
+                             const { data: fullData } = await db.from('fact_daily_session')
+                                 .select('status')
+                                 .eq('school_id', schoolId)
+                                 .gte('date', p.start_date)
+                                 .lte('date', p.end_date || p.start_date);
+                             data = fullData || [];
+                         }
                          
                          if(data && data.length > 0) {
                              const total = data.length;
@@ -1206,7 +1227,7 @@
                          } else {
                              // E.g. No classes found -> Maybe already handled or weekend? 
                              // Treat as neutral or covered?
-                             // Let's leave blank for now unless requested.
+                             // If specific, maybe IDs are wrong or deleted?
                          }
                      }
                 }
