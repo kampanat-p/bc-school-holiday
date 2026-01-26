@@ -1170,6 +1170,12 @@
                             if(isResolved) {
                                 // COMPLETE -> Stop Pulse
                                 e.setProp('classNames', []);
+
+                                // [AUTO-APPROVE] Update DB to save manual click
+                                console.log(`✨ Auto-Approving Ticket ${p.id} (All classes resolved)`);
+                                db.from('requests_log').update({ status: 'Approved' }).eq('id', p.id).then(({error}) => {
+                                    if(!error) e.setExtendedProp('status', 'Approved');
+                                });
                             } else {
                                 // ACTION NEEDED -> Keep Pulse
                                 e.setProp('classNames', ['status-pulse']);
@@ -1219,6 +1225,12 @@
                                  if (cancelled === total) {
                                      // COMPLETE
                                      e.setProp('classNames', []);
+                                     
+                                     // [AUTO-APPROVE] Update DB
+                                     console.log(`✨ Auto-Approving Ticket ${p.id} (All classes cancelled)`);
+                                     db.from('requests_log').update({ status: 'Approved' }).eq('id', p.id).then(({error}) => {
+                                         if(!error) e.setExtendedProp('status', 'Approved');
+                                     });
                                  } else {
                                      // ACTION NEEDED
                                      e.setProp('classNames', ['status-pulse']);
