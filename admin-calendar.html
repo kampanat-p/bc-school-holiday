@@ -156,7 +156,7 @@
         </div>
 
         <!-- Modal Body -->
-        <div class="p-6 space-y-5 max-h-[60vh] overflow-y-auto">
+        <div class="p-6 space-y-5 max-h-[60vh] overflow-y-auto" id="modalDetailView">
             
             <!-- Dates -->
             <div class="flex items-center text-gray-600">
@@ -226,8 +226,72 @@
             </div>
         </div>
 
-        <div class="p-4 bg-gray-50 border-t flex justify-end">
-            <button onclick="closeModal()" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 text-sm font-medium text-gray-700">Close</button>
+        <!-- EDIT VIEW (Hidden by default) -->
+        <div class="p-6 space-y-4 max-h-[60vh] overflow-y-auto hidden" id="modalEditView">
+            <div class="bg-amber-50 border-l-4 border-amber-400 p-4 mb-4">
+                <div class="flex">
+                    <div class="flex-shrink-0"><i class="fas fa-exclamation-triangle text-amber-400"></i></div>
+                    <div class="ml-3">
+                        <p class="text-sm text-amber-700">You are editing a live request record.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Start Date</label>
+                    <input type="date" id="editStartDate" class="w-full border rounded p-2 focus:ring-2 focus:ring-indigo-200 outline-none" onchange="refreshEditSessions()">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">End Date</label>
+                    <input type="date" id="editEndDate" class="w-full border rounded p-2 focus:ring-2 focus:ring-indigo-200 outline-none" onchange="refreshEditSessions()">
+                </div>
+            </div>
+
+            <div>
+                 <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Reason</label>
+                 <textarea id="editReason" rows="2" class="w-full border rounded p-2 focus:ring-2 focus:ring-indigo-200 outline-none"></textarea>
+            </div>
+
+            <div>
+                <div class="flex justify-between items-center mb-2">
+                     <label class="block text-xs font-bold text-gray-500 uppercase">Affected Sessions</label>
+                     <span class="text-[10px] text-gray-400" id="editSessionCount">0 sessions found</span>
+                </div>
+                <div class="border rounded-lg overflow-hidden h-48 relative">
+                    <div class="absolute inset-0 overflow-y-auto bg-white p-2" id="editSessionList">
+                        <!-- Checkboxes go here -->
+                        <div class="text-center text-gray-400 mt-10">Select dates to load sessions...</div>
+                    </div>
+                    <!-- Spinner -->
+                    <div id="editSessionLoading" class="absolute inset-0 bg-white/80 flex items-center justify-center hidden">
+                        <i class="fas fa-circle-notch fa-spin text-indigo-500 text-2xl"></i>
+                    </div>
+                </div>
+                <p class="text-[10px] text-gray-400 mt-1">* Uncheck sessions to exclude them from this ticket (Partial Leave/Holiday).</p>
+            </div>
+
+            <div class="border-t pt-4">
+                 <label class="block text-xs font-bold text-indigo-600 uppercase mb-1">Editor Name <span class="text-red-500">*</span></label>
+                 <input type="text" id="editEditorName" placeholder="Enter your name to sign this edit" class="w-full border-2 border-indigo-100 rounded p-2 focus:ring-2 focus:ring-indigo-500 outline-none">
+            </div>
+        </div>
+
+        <div class="p-4 bg-gray-50 border-t flex justify-between items-center">
+             <!-- Left Side Actions -->
+             <div id="modalLeftActions">
+                 <button onclick="toggleEditMode()" id="btnToggleEdit" class="text-gray-500 hover:text-indigo-600 text-sm font-medium px-2 py-1 rounded hover:bg-indigo-50 transition">
+                    <i class="fas fa-edit mr-1"></i> Edit Ticket
+                 </button>
+             </div>
+             
+             <!-- Right Side Actions -->
+             <div class="flex space-x-2">
+                <button onclick="closeModal()" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 text-sm font-medium text-gray-700">Close</button>
+                <button id="btnSaveEdit" onclick="saveEdit()" class="hidden px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg shadow-sm">
+                    Save Changes
+                </button>
+             </div>
         </div>
     </div>
   </div>
@@ -711,6 +775,12 @@
     async function openModal(event) {
         const p = event.extendedProps;
         currentEventId = p.id;
+
+        // RESET UI STATE (Ensure we start in View Mode)
+        document.getElementById('modalDetailView').classList.remove('hidden');
+        document.getElementById('modalEditView').classList.add('hidden');
+        document.getElementById('btnToggleEdit').innerHTML = '<i class="fas fa-edit mr-1"></i> Edit Ticket';
+        document.getElementById('btnSaveEdit').classList.add('hidden');
         
         // Dynamic Header
         const header = document.getElementById('modalHeader');
@@ -1245,6 +1315,204 @@
                 }
             } catch(err) { console.warn("Coverage check fail:", err); }
         }));
+    }
+
+    // --- EDIT MODE LOGIC ---
+    let currentEditEvent = null;
+    let availableSessions = []; 
+
+    async function toggleEditMode() {
+        const detailView = document.getElementById('modalDetailView');
+        const editView = document.getElementById('modalEditView');
+        const btnEdit = document.getElementById('btnToggleEdit');
+        const btnSave = document.getElementById('btnSaveEdit');
+
+        if (editView.classList.contains('hidden')) {
+            // ENTER EDIT MODE
+            const event = calendar.getEventById(currentEventId);
+            if(!event) return;
+            const p = event.extendedProps;
+            currentEditEvent = p;
+
+            // Populate Form
+            document.getElementById('editStartDate').value = p.start_date;
+            document.getElementById('editEndDate').value = p.end_date || p.start_date;
+            document.getElementById('editReason').value = (p.reason && p.reason !== 'undefined') ? p.reason : '';
+            document.getElementById('editEditorName').value = ''; 
+
+            detailView.classList.add('hidden');
+            editView.classList.remove('hidden');
+            btnEdit.innerHTML = '<i class="fas fa-times mr-1"></i> Cancel Edit';
+            btnSave.classList.remove('hidden');
+            
+            // Load Sessions immediately
+            refreshEditSessions();
+
+        } else {
+            // EXIT EDIT MODE
+            detailView.classList.remove('hidden');
+            editView.classList.add('hidden');
+            btnEdit.innerHTML = '<i class="fas fa-edit mr-1"></i> Edit Ticket';
+            btnSave.classList.add('hidden');
+        }
+    }
+
+    async function refreshEditSessions() {
+        if(!currentEditEvent) return;
+        const p = currentEditEvent;
+        
+        const start = document.getElementById('editStartDate').value;
+        const end = document.getElementById('editEndDate').value;
+        if(!start || !end) return;
+
+        const list = document.getElementById('editSessionList');
+        const loading = document.getElementById('editSessionLoading');
+        const countSpan = document.getElementById('editSessionCount');
+
+        list.innerHTML = '';
+        loading.classList.remove('hidden');
+        availableSessions = [];
+
+        try {
+            // Determine Fetch Logic (Teacher vs School)
+            // [UPDATED] Use correct column names (original_teacher_id / actual_teacher_id)
+            let query = db.from('fact_daily_session').select('session_id, date, start_time, class_name, original_teacher_id, actual_teacher_id, status');
+            
+            // Add Dates
+            query = query.gte('date', start).lte('date', end);
+
+            // Add Context
+            if(p.isLeave && p.teacher_id) {
+                // Filter by original_teacher_id to see classes assigned to this teacher
+                query = query.eq('original_teacher_id', p.teacher_id);
+            } else if (!p.isLeave && p.school_code) {
+                const schoolId = schoolCodeMap.get(p.school_code);
+                if(schoolId) query = query.eq('school_id', schoolId);
+                else throw "Unknown School ID for code: " + p.school_code;
+            } else {
+                loading.classList.add('hidden');
+                list.innerHTML = '<div class="text-red-500 text-center text-xs mt-4">Cannot determine context (School/Teacher ID missing).</div>';
+                return;
+            }
+
+            // Execute
+            const { data, error } = await query;
+            if(error) throw error;
+            
+            // Sort by Date + Time
+            availableSessions = (data || []).sort((a,b) => (a.date + a.start_time).localeCompare(b.date + b.start_time));
+            
+            countSpan.innerText = `${availableSessions.length} session(s) found`;
+
+            if(availableSessions.length === 0) {
+                list.innerHTML = '<div class="text-gray-400 text-center text-xs mt-4">No sessions found in this date range.</div>';
+            } else {
+                // Determine pre-selections
+                const currentAffected = parseSessions(p.affected_sessions);
+                // "Has Specific" if array is non-empty. 
+                // If it's empty/null, it typically means "Whole Day/All Sessions" in legacy logic.
+                // SO we default to ALL CHECKED if empty/null.
+                const hasSpecific = Array.isArray(currentAffected) && currentAffected.length > 0;
+                
+                // Render
+                list.innerHTML = availableSessions.map(s => {
+                    const time = s.start_time ? s.start_time.substring(0,5) : '??:??';
+                    
+                    let isChecked = false;
+                    if (!hasSpecific) isChecked = true; // Default All
+                    else if (currentAffected.includes(s.session_id)) isChecked = true;
+
+                    // [UPDATED] Show coverage status if applicable
+                    let statusHtml = `<span class="text-gray-500">${s.status || 'Active'}</span>`;
+                    if((s.status || '').includes('Cancelled')) {
+                        statusHtml = `<span class="text-red-500 font-bold"><i class="fas fa-ban mr-1"></i>Cancelled</span>`;
+                    } else if (s.original_teacher_id && s.actual_teacher_id && String(s.original_teacher_id) !== String(s.actual_teacher_id)) {
+                        statusHtml = `<span class="text-green-600 font-bold"><i class="fas fa-user-check mr-1"></i>Covered</span>`;
+                    }
+
+                    return `
+                        <div class="flex items-center p-2 hover:bg-gray-50 border-b border-gray-100 last:border-0 text-xs">
+                            <input type="checkbox" value="${s.session_id}" ${isChecked ? 'checked' : ''} class="session-checkbox w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 mr-3">
+                            <div class="flex-1">
+                                <div class="font-bold text-gray-700">${s.date} ${time} - ${s.class_name}</div>
+                                <div class="text-[10px]">${statusHtml}</div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+        } catch(e) {
+            console.error(e);
+            list.innerHTML = `<div class="text-red-500 text-center text-xs mt-4">Error loading sessions: ${e.message}</div>`;
+        } finally {
+            loading.classList.add('hidden');
+        }
+    }
+
+    async function saveEdit() {
+        const editorName = document.getElementById('editEditorName').value.trim();
+        if(!editorName) { alert("Please enter your name to sign this edit."); return; }
+
+        const start = document.getElementById('editStartDate').value;
+        const end = document.getElementById('editEndDate').value;
+        const reason = document.getElementById('editReason').value;
+
+        // Collect Sessions
+        const checks = document.querySelectorAll('.session-checkbox:checked');
+        const selectedIds = Array.from(checks).map(c => c.value);
+        
+        if (!confirm(`Save changes? \nUser: ${editorName}\nSessions: ${selectedIds.length}`)) return;
+        
+        const btn = document.getElementById('btnSaveEdit');
+        const originalText = btn.innerText;
+        btn.innerText = "Saving..."; btn.disabled = true;
+
+        try {
+            // 1. Get Log History
+            const { data: currentData } = await db.from('requests_log').select('change_log').eq('id', currentEditEvent.id).single();
+            
+            // 2. Build New Log Entry
+            let newLog = [];
+            if(currentData && Array.isArray(currentData.change_log)) newLog = [...currentData.change_log]; // Copy
+            
+            const logEntry = {
+                date: new Date().toISOString(),
+                editor: editorName,
+                note: `Updated dates (${start} to ${end}) and sessions (${selectedIds.length}).`
+            };
+            newLog.push(logEntry);
+
+            // 3. Update
+            const updatePayload = {
+                start_date: start,
+                end_date: end,
+                reason: reason,
+                affected_sessions: selectedIds,
+                change_log: newLog
+            };
+
+            const { error } = await db.from('requests_log').update(updatePayload).eq('id', currentEditEvent.id);
+            if(error) {
+                // Fallback: If 'change_log' column missing, try saving without it
+                if(error.message && error.message.includes('change_log')) {
+                    console.warn("change_log column missing, saving basic data only.");
+                    delete updatePayload.change_log;
+                    const { error: retryError } = await db.from('requests_log').update(updatePayload).eq('id', currentEditEvent.id);
+                    if(retryError) throw retryError;
+                } else throw error;
+            }
+
+            alert("Ticket updated successfully!");
+            closeModal();
+            calendar.refetchEvents(); 
+
+        } catch(e) {
+            console.error(e);
+            alert("Failed to save changes: " + e.message);
+        } finally {
+            btn.innerText = originalText; btn.disabled = false;
+        }
     }
 </script>
 </body>
