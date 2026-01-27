@@ -270,12 +270,19 @@
         }
 
         if(q.length === 0) {
-            list.classList.add('hidden');
-            return;
+            // Logic Changed: Don't hide, show all
+            // list.classList.add('hidden');
+            // return;
         }
 
         // Filter
-        const matches = state.teachers.filter(t => t.name.toLowerCase().includes(q));
+        let matches = [];
+        if (q.length === 0) {
+             matches = state.teachers; // Show all if empty
+        } else {
+             matches = state.teachers.filter(t => t.name.toLowerCase().includes(q));
+        }
+
         list.innerHTML = "";
         
         if(matches.length === 0) {

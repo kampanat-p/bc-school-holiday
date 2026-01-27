@@ -69,12 +69,33 @@
     <!-- Form -->
     <form id="mainForm" class="p-5 space-y-6">
       
-      <!-- 1. School -->
+      <!-- 1. School (Searchable Dropdown) -->
       <div>
         <label class="block text-sm font-semibold text-gray-700 mb-2">🏫 School</label>
-        <select id="schoolSelect" class="w-full p-3 border border-gray-300 rounded-xl bg-gray-50 focus:ring-2 focus:ring-green-500" onchange="checkScheduleCondition()">
-          <option value="" disabled selected>-- Select School --</option>
-        </select>
+        
+        <div class="relative">
+            <!-- Search Display Input -->
+            <input type="text" id="schoolSearch" placeholder="Select or Type School..." 
+                   class="w-full p-3 pl-10 border border-gray-300 rounded-xl bg-gray-50 focus:ring-2 focus:ring-green-500 transition"
+                   autocomplete="off" oninput="onSchoolSearch()" onfocus="onSchoolSearch()">
+            
+            <div class="absolute left-3 top-3.5 text-gray-400">
+                <i class="fas fa-search"></i>
+            </div>
+            
+            <!-- Clear Button -->
+            <button type="button" onclick="clearSchoolSearch()" id="clearSchoolBtn" class="hidden absolute right-3 top-3.5 text-gray-400 hover:text-gray-600">
+                 <i class="fas fa-times-circle"></i>
+            </button>
+        </div>
+
+        <!-- Hidden Input for Logic Compatibility (Holds condition value) -->
+        <input type="hidden" id="schoolSelect" onchange="checkScheduleCondition()">
+
+        <!-- Dropdown Result List -->
+        <div id="schoolDropdown" class="hidden absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-y-auto z-50 mx-5">
+             <!-- Items populated by JS -->
+        </div>
       </div>
 
       <!-- 2. Date -->
@@ -198,16 +219,96 @@
 
         if(error) throw error;
         
-        const sel = document.getElementById('schoolSelect');
-        sel.innerHTML = '<option value="" disabled selected>-- Select School --</option>';
+        // Populate State Only (No <select> population)
+        state.schoolsList = []; // Array for Searching
+        state.schools = {};     // Map for Lookup
+        
         data.forEach(s => {
             state.schools[s.school_code] = { ...s, group: s.school_group };
-            const opt = document.createElement('option');
-            opt.value = s.school_code;
-            opt.text = `${s.school_code} : ${s.school_name_en}`;
-            sel.appendChild(opt);
+            state.schoolsList.push({
+                code: s.school_code,
+                name: s.school_name_en,
+                group: s.school_group || 'Other'
+            });
         });
+        log(`Loaded ${data.length} schools.`);
     }
+
+    // --- Search Logic for School ---
+    window.onSchoolSearch = () => {
+        const input = document.getElementById('schoolSearch');
+        const q = input.value.toLowerCase();
+        const list = document.getElementById('schoolDropdown');
+        const clearBtn = document.getElementById('clearSchoolBtn');
+        
+        // Toggle Clear Btn
+        if(q.length > 0) clearBtn.classList.remove('hidden');
+        else clearBtn.classList.add('hidden');
+
+        // Logic: Show All if Empty
+        let matches = [];
+        if(q.length === 0) {
+            matches = state.schoolsList || [];
+        } else {
+            matches = (state.schoolsList || []).filter(s => 
+                s.code.toLowerCase().includes(q) || 
+                s.name.toLowerCase().includes(q)
+            );
+        }
+
+        // Render
+        list.innerHTML = "";
+        if(matches.length === 0) {
+            list.innerHTML = '<div class="p-4 text-center text-gray-400 text-sm">No schools found</div>';
+        } else {
+            matches.forEach(s => {
+                const div = document.createElement('div');
+                div.className = "p-3 hover:bg-green-50 cursor-pointer border-b border-gray-100 last:border-0 transition";
+                div.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <span class="font-bold text-gray-800">${s.code}</span>
+                        <span class="text-[10px] text-gray-500 bg-gray-100 px-2 py-1 rounded">${s.group}</span>
+                    </div>
+                    <div class="text-xs text-gray-500 truncate">${s.name}</div>
+                `;
+                div.onclick = () => selectSchool(s);
+                list.appendChild(div);
+            });
+        }
+        list.classList.remove('hidden');
+    };
+
+    window.selectSchool = (s) => {
+        document.getElementById('schoolSearch').value = `${s.code} : ${s.name}`; // Display Text
+        document.getElementById('schoolSelect').value = s.code; // Actual Value
+        
+        document.getElementById('schoolDropdown').classList.add('hidden');
+        document.getElementById('clearSchoolBtn').classList.remove('hidden');
+        
+        // Trigger Update
+        checkScheduleCondition();
+    };
+
+    window.clearSchoolSearch = () => {
+        document.getElementById('schoolSearch').value = "";
+        document.getElementById('schoolSelect').value = "";
+        document.getElementById('schoolDropdown').classList.add('hidden');
+        document.getElementById('clearSchoolBtn').classList.add('hidden');
+        
+        // Trigger Update (Reset)
+        checkScheduleCondition();
+        document.getElementById('schoolSearch').focus();
+    };
+
+    // Close Dropdown on Click Outside
+    document.addEventListener('click', function(event) {
+        // School Dropdown
+        const box = document.getElementById('schoolDropdown');
+        const input = document.getElementById('schoolSearch');
+        if (box && !box.contains(event.target) && !input.contains(event.target)) {
+            box.classList.add('hidden');
+        }
+    });
 
     function getSchoolStyle(group) {
         const map = {
