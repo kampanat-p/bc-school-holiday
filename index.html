@@ -781,26 +781,51 @@
         }
 
         data.forEach(r => {
-            // Determine Status Color
-            const statusColor = r.status === 'Pending' ? 'text-yellow-600 bg-yellow-100' : 
-                               (r.status === 'Success' || r.status === 'Approved' ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100');
-            
             // Format Date
             const dateDisplay = (r.start_date === r.end_date) ? r.start_date : `${r.start_date} ➝ ${r.end_date}`;
             
+            // Logic: Parse affected_sessions to show details
+            let detailsHtml = "";
+            let isWholeDay = true;
+
+            if (r.affected_sessions) {
+                try {
+                    // Try parsing. It might be an array of IDs (old format) or something else.
+                    // But wait, the current save logic saves an ARRAY of session IDs.
+                    const parsed = JSON.parse(r.affected_sessions);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        isWholeDay = false;
+                        detailsHtml = `<div class="mt-2 pl-2 border-l-2 border-green-200 text-[10px] text-gray-500 italic">
+                            Cancelled ${parsed.length} session(s)
+                        </div>`;
+                        // Note: We only save IDs in affected_sessions currently (see submitData: Array.from(state.sessions.keys())).
+                        // Use session count for now since we don't have class names in the log history without joining fact_daily_session.
+                    }
+                } catch(e) {}
+            }
+
+            const typeDisplay = isWholeDay 
+                ? `<span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold">Whole Day</span>` 
+                : `<span class="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded font-bold">Partial (${detailsHtml.replace(/<[^>]*>?/gm, '').trim()})</span>`; 
+            
+            // Re-render specifically for "Class List" style if possible, but we lack Class Names in the log.
+            // As a compromise based on available data in `requests_log`, I will show "Whole Day" OR "X Sessions Cancelled".
+            
+            const contentDisplay = isWholeDay
+                ? `<div class="mt-1 text-xs text-blue-600 font-semibold"><i class="fas fa-sun mr-1"></i> Whole Day Cancellation</div>`
+                : `<div class="mt-1 text-xs text-orange-600 font-semibold"><i class="fas fa-list-ul mr-1"></i> ${detailsHtml.replace(/<[^>]*>?/gm, '').trim()}</div>`;
+
+
             list.innerHTML += `
                <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm text-sm">
                    <div class="flex justify-between items-start mb-1">
                        <span class="font-bold text-gray-800"><i class="fas fa-school mr-1 text-green-600"></i> ${r.school_code}</span>
-                       <span class="text-[10px] px-2 py-0.5 rounded font-bold ${statusColor}">${r.status}</span>
                    </div>
                    <div class="text-gray-600 text-xs mt-1">
                        <div class="flex items-center gap-2 mb-1">
                            <i class="far fa-calendar-alt text-gray-400"></i> <span>${dateDisplay}</span>
                        </div>
-                       <div class="flex items-center gap-2">
-                           <i class="fas fa-tag text-gray-400"></i> <span>${r.type}</span>
-                       </div>
+                       ${contentDisplay}
                    </div>
                    <div class="text-gray-400 text-[10px] mt-2 text-right border-t pt-1 border-gray-50">
                        Submitted: ${new Date(r.created_at).toLocaleString('th-TH')}
