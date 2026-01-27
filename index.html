@@ -66,6 +66,13 @@
       </div>
     </div>
 
+    <!-- History Button Bar -->
+    <div class="px-5 mt-4">
+        <button onclick="showHistory()" class="w-full text-xs py-2 rounded-xl bg-green-50 text-green-600 font-bold border border-green-100 flex items-center justify-center gap-2 hover:bg-green-100 transition">
+            <i class="fas fa-history"></i> View My Previous Requests
+        </button>
+    </div>
+
     <!-- Form -->
     <form id="mainForm" class="p-5 space-y-6">
       
@@ -144,6 +151,23 @@
     </div>
 
   </div>
+
+  <!-- History Modal -->
+  <div id="historyModal" class="hidden fixed inset-0 z-[60] bg-black bg-opacity-50 flex items-end sm:items-center justify-center">
+      <div class="bg-white w-full sm:w-[500px] h-[80vh] sm:h-auto sm:rounded-xl rounded-t-2xl flex flex-col animate-slide-up">
+          <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-2xl">
+              <h2 class="font-bold text-lg text-gray-700">📜 Submission History</h2>
+              <button onclick="document.getElementById('historyModal').classList.add('hidden')" class="text-gray-500"><i class="fas fa-times fa-lg"></i></button>
+          </div>
+          <div id="historyList" class="p-4 overflow-y-auto flex-1 space-y-3 bg-gray-100">
+               <!-- Items go here -->
+          </div>
+          <div class="p-4 border-t bg-white">
+              <button onclick="fetchHistory()" class="w-full py-2 bg-gray-100 text-gray-600 rounded-lg font-bold text-sm">Refresh List</button>
+          </div>
+      </div>
+  </div>
+  <style>.animate-slide-up { animation: slideUp 0.3s ease-out; } @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }</style>
 
   <!-- ####################################################### -->
   <!-- 🛡️ ROBUST SCRIPT ARCHITECTURE (INLINED) -->
@@ -719,6 +743,72 @@
             })
         });
     }
+
+    // --- History Feature ---
+    window.showHistory = () => {
+        document.getElementById('historyModal').classList.remove('hidden');
+        fetchHistory();
+    };
+
+    window.fetchHistory = async () => {
+        const list = document.getElementById('historyList');
+        // Check local state first for user ID
+        if(!state.user || !state.user.userId) {
+             list.innerHTML = '<div class="text-center text-red-400 py-10">Please wait for login...</div>';
+             return;
+        }
+
+        list.innerHTML = '<div class="text-center text-gray-500 py-4"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
+
+        // Fetch logs for this user where school_code is present (indicates Holiday Request)
+        const { data, error } = await state.supabase.from('requests_log')
+            .select('*')
+            .eq('user_id', state.user.userId)
+            .neq('school_code', 'N/A') // Filter out Teacher Leave requests (which mark school as N/A)
+            .order('created_at', { ascending: false })
+            .limit(20);
+
+        list.innerHTML = "";
+        
+        if(error) {
+            list.innerHTML = `<div class="text-center text-red-500 py-4">Error: ${error.message}</div>`;
+            return;
+        }
+        
+        if(!data || data.length === 0) {
+            list.innerHTML = '<div class="text-center text-gray-400 py-10">No history found</div>';
+            return;
+        }
+
+        data.forEach(r => {
+            // Determine Status Color
+            const statusColor = r.status === 'Pending' ? 'text-yellow-600 bg-yellow-100' : 
+                               (r.status === 'Success' || r.status === 'Approved' ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100');
+            
+            // Format Date
+            const dateDisplay = (r.start_date === r.end_date) ? r.start_date : `${r.start_date} ➝ ${r.end_date}`;
+            
+            list.innerHTML += `
+               <div class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm text-sm">
+                   <div class="flex justify-between items-start mb-1">
+                       <span class="font-bold text-gray-800"><i class="fas fa-school mr-1 text-green-600"></i> ${r.school_code}</span>
+                       <span class="text-[10px] px-2 py-0.5 rounded font-bold ${statusColor}">${r.status}</span>
+                   </div>
+                   <div class="text-gray-600 text-xs mt-1">
+                       <div class="flex items-center gap-2 mb-1">
+                           <i class="far fa-calendar-alt text-gray-400"></i> <span>${dateDisplay}</span>
+                       </div>
+                       <div class="flex items-center gap-2">
+                           <i class="fas fa-tag text-gray-400"></i> <span>${r.type}</span>
+                       </div>
+                   </div>
+                   <div class="text-gray-400 text-[10px] mt-2 text-right border-t pt-1 border-gray-50">
+                       Submitted: ${new Date(r.created_at).toLocaleString('th-TH')}
+                   </div>
+               </div>
+            `;
+        });
+    };
 
     // Run It
     init();
