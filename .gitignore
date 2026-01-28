@@ -6,8 +6,15 @@
 .DS_Store
 Thumbs.db
 
-# Node modules (ถ้ามี)
+# Node modules
 node_modules/
+
+# Edge Functions & Scripts (Local Only)
+supabase/
+scripts/
+email-notifier/
+package.json
+package-lock.json
 
 # Backend Folders (Ignore copies in frontend repo)
 database/
