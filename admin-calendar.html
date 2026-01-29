@@ -514,13 +514,34 @@
         const match = activeAlarms.find(a => a.time === currentStr && a.is_active);
         
         if(match) {
-            // Check if we already fired this minute? (Simple debounce: check Seconds < 35)
-            // Or just check Pending count
+            // Strict Debounce: Ensure we only fire ONCE per minute cycle.
+            // Using LocalStorage to track the last fired timestamp key (Date + Time + AlarmID)
+            const uniqueKey = `alarm_fired_${currentStr}_${match.id}`;
+            const alreadyFiredToday = localStorage.getItem(uniqueKey);
+            
+            // Check expiry of old keys? Not strictly needed for a single day cycle, but good hygiene
+            // Just check if we exist
+            if(alreadyFiredToday) {
+                 console.log(`Skipping alarm ${currentStr}, already fired.`);
+                 return; 
+            }
+
             const pendingCount = window.pendingRequestsCount || 0;
             
             if(pendingCount > 0) {
                 console.log(`⏰ ALARM: ${currentStr} - Pending: ${pendingCount}. Sending Webhook.`);
-                sendDiscordNotification(pendingCount);
+                await sendDiscordNotification(pendingCount); // Await to ensure completion
+                
+                // Mark as done for this specific minute
+                localStorage.setItem(uniqueKey, 'true');
+                
+                // Cleanup old keys (optional, but keeps storage clean)
+                // Remove any key that doesn't match current time
+                Object.keys(localStorage).forEach(k => {
+                    if(k.startsWith('alarm_fired_') && k !== uniqueKey) {
+                        localStorage.removeItem(k);
+                    }
+                });
             }
         }
     }
