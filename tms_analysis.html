@@ -29,9 +29,23 @@
             <!-- Controls & Stats -->
             <div class="mb-6 bg-white p-4 rounded-lg shadow-sm border border-gray-200">
                 <div class="flex flex-col md:flex-row justify-between items-center gap-4">
-                    <div class="flex-1 w-full relative">
-                         <input type="text" id="search-input" oninput="renderDashboard()" placeholder="Find school..." class="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                         <span class="absolute left-3 top-2.5 text-gray-400">🔍</span>
+                    <div class="flex-1 w-full relative flex gap-2">
+                        <div class="relative flex-1">
+                             <input type="text" id="search-input" oninput="renderDashboard()" placeholder="Find school..." class="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                             <span class="absolute left-3 top-2.5 text-gray-400">🔍</span>
+                        </div>
+                        
+                        <!-- Semester Filter -->
+                        <div class="relative w-48">
+                            <select id="semester-filter" onchange="applyFilter()" class="w-full pl-3 pr-8 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none bg-white">
+                                <option value="all">Full Academic Year</option>
+                                <option value="term1">Term 1 (May - Oct)</option>
+                                <option value="term2" selected>Term 2 (Nov - Apr)</option>
+                            </select>
+                            <div class="absolute right-3 top-3 pointer-events-none">
+                                <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                            </div>
+                        </div>
                     </div>
                     <div class="flex items-center gap-4">
                         <div class="text-sm font-medium text-gray-600">
@@ -74,6 +88,8 @@
         
         let client;
         let schoolData = {}; // Store processed data
+        let rawWeeks = [];
+        let rawTopics = [];
 
         async function loadData() {
             const statusEl = document.getElementById('status');
@@ -102,8 +118,11 @@
                 if (weekRes.error) throw weekRes.error;
                 if (topicRes.error) throw topicRes.error;
 
-                processData(weekRes.data, topicRes.data);
-                renderDashboard();
+                rawWeeks = weekRes.data;
+                rawTopics = topicRes.data;
+
+                // Initial load: Use default filter (Term 2)
+                applyFilter();
                 
                 statusEl.textContent = "Ready";
 
@@ -113,8 +132,67 @@
             }
         }
 
-        function processData(weeks, topics) {
+        function applyFilter() {
+            const filterVal = document.getElementById('semester-filter').value;
+            processData(rawWeeks, rawTopics, filterVal);
+            renderDashboard();
+        }
+
+        function processData(weeks, topics, filterMode = 'all') {
             schoolData = {};
+
+            const monthMap = { "Jan":0, "Feb":1, "Mar":2, "Apr":3, "May":4, "Jun":5, "Jul":6, "Aug":7, "Sep":8, "Oct":9, "Nov":10, "Dec":11 };
+            
+            // Define Term Sets
+            const term1Months = new Set([4, 5, 6, 7, 8, 9]); // May - Oct
+            const term2Months = new Set([10, 11, 0, 1, 2, 3]); // Nov - Apr
+
+            // Helper to check if header is in selected filter range
+            const isHeaderInFilter = (headerStr, type) => {
+                if (filterMode === 'all') return true;
+                
+                // --- TOPIC LOGIC ---
+                // Term 2: Topics 15-24
+                // Term 1: All other topics (1-14)
+                if (type === 'topic') {
+                    // Look for "Topic X" or just "X" if implicitly topic
+                    const match = headerStr.match(/Topic\s*(\d+)/i);
+                    if (match) {
+                        const tNum = parseInt(match[1]);
+                        if (filterMode === 'term2') return tNum >= 15 && tNum <= 24;
+                        if (filterMode === 'term1') return tNum < 15 || tNum > 24;
+                    }
+                    return true; // If pattern doesn't match, keep safe
+                }
+
+                // --- WEEK LOGIC (Date Based) ---
+                // Support both "DD Mon" (22 May) and "Mon DD" (Jun 9) patterns
+                let mStr = null;
+
+                // Try "Mon DD" first (e.g. Jun 9) - common in US strings
+                const match1 = headerStr.match(/\(([A-Za-z]{3})\s+\d+/);
+                if (match1) {
+                    mStr = match1[1];
+                } else {
+                    // Try "DD Mon" (e.g. 22 May) - common in UK/Global strings
+                    const match2 = headerStr.match(/\(\d+\s+([A-Za-z]{3})/);
+                    if (match2) mStr = match2[1];
+                }
+
+                if (!mStr) return true; // If no date found, include it by default
+                
+                // Capitalize first letter only to match monthMap keys (Jan, Feb...)
+                mStr = mStr.charAt(0).toUpperCase() + mStr.slice(1).toLowerCase();
+
+                const mIdx = monthMap[mStr];
+                
+                if (mIdx === undefined) return true; // Unknown month, safe keep
+
+                if (filterMode === 'term1') return term1Months.has(mIdx);
+                if (filterMode === 'term2') return term2Months.has(mIdx);
+                
+                return true;
+            };
 
             // Helper to get normalized date key for alignment
             const getNormalizedKey = (headerStr) => {
@@ -150,12 +228,20 @@
 
                 if (data_values) {
                      let recordZeros = 0;
+                     let recordTotal = 0;
+
                      data_values.forEach((val, idx) => {
+                        let headerRaw = headers[idx] || `Item ${idx}`;
+                        
+                        // DATE/TOPIC FILTER CHECK
+                        if (!isHeaderInFilter(headerRaw, type)) return; // SKIP this column
+                        
+                        recordTotal++;
+                        
                         const isZero = val.trim().startsWith('0 /') || val.trim() === '0';
                         
-                        // Header cleanup for Display (Detail View) - preserve "Weeks"
-                        let headerDisplay = headers[idx] || `Item ${idx}`;
-                        headerDisplay = headerDisplay.replace(/(\r\n|\n|\r)/gm, " ").replace(/\s+/g, ' ').trim();
+                        // Header cleanup for Display (Detail View)
+                        let headerDisplay = headerRaw.replace(/(\r\n|\n|\r)/gm, " ").replace(/\s+/g, ' ').trim();
                         
                         if (headerDisplay.match(/^Week\s*\d+/i)) {
                             headerDisplay = headerDisplay.replace(/^Week\s*(\d+)/i, "W$1");
@@ -164,7 +250,7 @@
                         }
 
                         // Normalized Key for Aggregation (Date alignment)
-                        const dateKey = getNormalizedKey(headers[idx] || `Item ${idx}`);
+                        const dateKey = getNormalizedKey(headerRaw);
 
                         if (type === 'week') {
                             schoolData[school].classes[class_name].allWeekDates.add(dateKey);
@@ -187,16 +273,23 @@
                         
                         if (isZero && type !== 'week') { 
                             // weekZeros counted in block above
-                            recordZeros++; // actually for stats calculation below
+                            recordZeros++; 
                         }
                         if (type === 'week' && isZero) recordZeros++;
                     });
 
                     // Update Week Stats
                     if (type === 'week') {
-                        const total = data_values.length;
+                        // Use filtered counts calculation
+                        const total = recordTotal;
                         const active = total - recordZeros;
-                        schoolData[school].classes[class_name].weekStats = { active, total };
+                        
+                        // Accumulate stats (Handles multiple rows for same class if any, though unlikely)
+                        const prev = schoolData[school].classes[class_name].weekStats;
+                        schoolData[school].classes[class_name].weekStats = { 
+                            active: prev.active + active, 
+                            total: prev.total + total 
+                        };
                         
                         schoolData[school].aggStats.active += active;
                         schoolData[school].aggStats.total += total;
