@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TMS Listening Analysis</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        .loading { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 2s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-8 flex justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-800">TMS Listening Analysis</h1>
+                <p class="text-gray-500 mt-2">Identify classes with zero attendance in Listening activities</p>
+            </div>
+            <div id="status" class="text-sm font-medium text-gray-500">Connecting...</div>
+        </header>
+
+        <!-- DASHBOARD VIEW: School Heatmap -->
+        <div id="dashboard-view">
+            <h2 class="text-xl font-semibold text-gray-800 mb-6">School Overview (Heatmap)</h2>
+            
+            <!-- Controls & Stats -->
+            <div class="mb-6 bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+                <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                    <div class="flex-1 w-full relative">
+                         <input type="text" id="search-input" oninput="renderDashboard()" placeholder="Find school..." class="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                         <span class="absolute left-3 top-2.5 text-gray-400">🔍</span>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <div class="text-sm font-medium text-gray-600">
+                            At-Risk Schools: <span id="trouble-count" class="text-red-600 font-bold text-lg">0</span>
+                        </div>
+                        <button id="filter-btn" onclick="toggleFilter()" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 flex items-center gap-2 transition-colors transition-all">
+                            <span>⚠️ Show At-Risk Only</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="school-grid" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                <!-- Cards injected here -->
+                <div class="col-span-full text-center py-10 text-gray-400">Loading schools...</div>
+            </div>
+        </div>
+
+        <!-- DETAIL VIEW: Class List (Hidden by default) -->
+        <div id="detail-view" class="hidden">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                <button onclick="showDashboard()" class="flex items-center text-gray-600 hover:text-blue-600 font-medium transition-colors px-4 py-2 bg-white rounded-lg shadow-sm border border-gray-200">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+                    Back to Dashboard
+                </button>
+                <h2 id="detail-title" class="text-2xl font-bold text-gray-800">School Name</h2>
+            </div>
+
+            <div id="detail-container" class="space-y-6">
+                <!-- Dynamic Content (Grade Cards) injected here -->
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // CONFIG
+        const SUPABASE_URL = 'https://cgznmxcecljfybcgujjb.supabase.co';
+        const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc3NjUyNTMsImV4cCI6MjA4MzM0MTI1M30.e2SjA1IBFrxd4KkLrT6DYpeuHPiRSg64Jk-M3pPGC6w';
+        
+        let client;
+        let schoolData = {}; // Store processed data
+
+        async function loadData() {
+            const statusEl = document.getElementById('status');
+            
+            try {
+                if (typeof supabase === 'undefined') throw new Error("Supabase library failed to load.");
+                const createClient = supabase.createClient || (window.supabase && window.supabase.createClient);
+                if (!createClient) throw new Error("Could not find createClient function.");
+
+                client = createClient(SUPABASE_URL, ANON_KEY);
+                statusEl.textContent = "Fetching metrics...";
+
+                // Fetch SPECIFIC metrics to avoid mixing "Attended" vs "Did Not Attend"
+                const [weekRes, topicRes] = await Promise.all([
+                    client.from('raw_tms_metrics')
+                        .select('*')
+                        .eq('report_type', 'by-week')
+                        .eq('metric_name', '# of students who attended at least 1 Listening activity'),
+                    
+                    client.from('raw_tms_metrics')
+                        .select('*')
+                        .eq('report_type', 'by-topic')
+                        .eq('metric_name', '# of students who attended Listening activity')
+                ]);
+
+                if (weekRes.error) throw weekRes.error;
+                if (topicRes.error) throw topicRes.error;
+
+                processData(weekRes.data, topicRes.data);
+                renderDashboard();
+                
+                statusEl.textContent = "Ready";
+
+            } catch (err) {
+                console.error(err);
+                statusEl.innerHTML = `<span class="text-red-500 font-bold">Error: ${err.message}</span>`;
+            }
+        }
+
+        function processData(weeks, topics) {
+            schoolData = {};
+
+            // Helper to get normalized date key for alignment
+            const getNormalizedKey = (headerStr) => {
+                // 1. Clean basic whitespace/newlines first
+                const clean = headerStr.replace(/(\r\n|\n|\r)/gm, " ").replace(/\s+/g, ' ').trim();
+                // 2. Extract content inside parentheses (dates)
+                const match = clean.match(/\((.*?)\)/);
+                if (match) return match[1].trim(); 
+                // 3. Fallback to full string if no date found
+                return clean;
+            };
+
+            // 1. Process Class Level
+            const processRecord = (record, type) => {
+                const { school, class_name, headers, data_values } = record;
+                if (!schoolData[school]) schoolData[school] = { 
+                    totalZeros: 0, 
+                    classes: {},
+                    aggStats: { active: 0, total: 0 },
+                    grades: {} 
+                };
+                if (!schoolData[school].classes[class_name]) {
+                    schoolData[school].classes[class_name] = { 
+                        weekZeros: [], topicZeros: [],
+                        weekStats: { active: 0, total: 0 },
+                        // Sets to track normalized dates
+                        activeWeekDates: new Set(),
+                        allWeekDates: new Set(),
+                        activeTopics: new Set(),
+                        allTopics: new Set()
+                    };
+                }
+
+                if (data_values) {
+                     let recordZeros = 0;
+                     data_values.forEach((val, idx) => {
+                        const isZero = val.trim().startsWith('0 /') || val.trim() === '0';
+                        
+                        // Header cleanup for Display (Detail View) - preserve "Weeks"
+                        let headerDisplay = headers[idx] || `Item ${idx}`;
+                        headerDisplay = headerDisplay.replace(/(\r\n|\n|\r)/gm, " ").replace(/\s+/g, ' ').trim();
+                        
+                        if (headerDisplay.match(/^Week\s*\d+/i)) {
+                            headerDisplay = headerDisplay.replace(/^Week\s*(\d+)/i, "W$1");
+                        } else if (headerDisplay.match(/^Topic\s*\d+/i)) {
+                            headerDisplay = headerDisplay.replace(/^Topic\s*(\d+)/i, "T$1");
+                        }
+
+                        // Normalized Key for Aggregation (Date alignment)
+                        const dateKey = getNormalizedKey(headers[idx] || `Item ${idx}`);
+
+                        if (type === 'week') {
+                            schoolData[school].classes[class_name].allWeekDates.add(dateKey);
+                            if (!isZero) {
+                                schoolData[school].classes[class_name].activeWeekDates.add(dateKey);
+                            } else {
+                                schoolData[school].classes[class_name].weekZeros.push(headerDisplay);
+                                schoolData[school].totalZeros++; 
+                            }
+                        } else {
+                             // Topics: simpler handling
+                             schoolData[school].classes[class_name].allTopics.add(headerDisplay);
+                             if (isZero) {
+                                schoolData[school].classes[class_name].topicZeros.push(headerDisplay);
+                                schoolData[school].totalZeros++;
+                             } else {
+                                schoolData[school].classes[class_name].activeTopics.add(headerDisplay);
+                             }
+                        }
+                        
+                        if (isZero && type !== 'week') { 
+                            // weekZeros counted in block above
+                            recordZeros++; // actually for stats calculation below
+                        }
+                        if (type === 'week' && isZero) recordZeros++;
+                    });
+
+                    // Update Week Stats
+                    if (type === 'week') {
+                        const total = data_values.length;
+                        const active = total - recordZeros;
+                        schoolData[school].classes[class_name].weekStats = { active, total };
+                        
+                        schoolData[school].aggStats.active += active;
+                        schoolData[school].aggStats.total += total;
+                    }
+                }
+            };
+
+            weeks.forEach(r => processRecord(r, 'week'));
+            topics.forEach(r => processRecord(r, 'topic'));
+
+            // 2. Aggregate to Grade Level
+            Object.keys(schoolData).forEach(sKey => {
+                const s = schoolData[sKey];
+                const grades = {};
+
+                Object.keys(s.classes).forEach(clsName => {
+                    // Extract Grade (e.g., G3 from G3.1, or K2 from K2.1, or just G3)
+                    const match = clsName.match(/^([A-Z]+\d+)/);
+                    const gradeName = match ? match[1] : clsName;
+
+                    if (!grades[gradeName]) {
+                        grades[gradeName] = {
+                            gradeActiveWeeks: new Set(),
+                            gradeAllWeeks: new Set(),
+                            gradeActiveTopics: new Set(),
+                            gradeAllTopics: new Set(),
+                            classCount: 0
+                        };
+                    }
+                    
+                    grades[gradeName].classCount++;
+
+                    const cls = s.classes[clsName];
+                    // UNION logic: Grade is active if ANY class is active for that date
+                    cls.activeWeekDates.forEach(d => grades[gradeName].gradeActiveWeeks.add(d));
+                    cls.allWeekDates.forEach(d => grades[gradeName].gradeAllWeeks.add(d));
+                    
+                    // UNION logic for Topics
+                    cls.activeTopics.forEach(t => grades[gradeName].gradeActiveTopics.add(t));
+                    cls.allTopics.forEach(t => grades[gradeName].gradeAllTopics.add(t));
+                });
+
+                // Finalize Grade Stats
+                Object.keys(grades).forEach(gName => {
+                    const g = grades[gName];
+                    
+                    g.activeCount = g.gradeActiveWeeks.size;
+                    g.totalWeeks = g.gradeAllWeeks.size;
+                    
+                    // Identify Missing weeks (Found in All but not in Active)
+                    g.missingWeeks = [];
+                    g.gradeAllWeeks.forEach(d => {
+                        if (!g.gradeActiveWeeks.has(d)) {
+                            g.missingWeeks.push(d);
+                        }
+                    });
+
+                    // Identify Missing Topics
+                    g.missingTopics = [];
+                    g.gradeAllTopics.forEach(t => {
+                        if (!g.gradeActiveTopics.has(t)) {
+                            g.missingTopics.push(t);
+                        }
+                    });
+                    
+                    // Sort missing weeks chronologically
+                    // Month map for sorting (Assuming standard English months)
+                    const monthMap = { "Jan":0, "Feb":1, "Mar":2, "Apr":3, "May":4, "Jun":5, "Jul":6, "Aug":7, "Sep":8, "Oct":9, "Nov":10, "Dec":11 };
+                    
+                    g.missingWeeks.sort((a, b) => {
+                        const getVal = (str) => {
+                            // specific extraction for "Mon DD" or "Mon D" pattern
+                            // e.g. "Jun 2 - Jun 8" -> matches "Jun", "2"
+                            const match = str.match(/([A-Za-z]{3})\s+(\d+)/);
+                            if (!match) return 9999;
+                             
+                            const m = monthMap[match[1]] !== undefined ? monthMap[match[1]] : 0;
+                            const d = parseInt(match[2]);
+                            
+                            // Academic Year Start: May (Index 4)
+                            // Treat Jan(0) - Apr(3) as "Next Year" (Month + 12)
+                            const adjustedM = (m < 4) ? m + 12 : m; 
+                            
+                            return adjustedM * 100 + d;
+                        };
+                        return getVal(a) - getVal(b);
+                    });
+
+                    // Sort Missing Topics (Natural Sort T1, T2...)
+                    g.missingTopics.sort((a,b) => a.localeCompare(b, undefined, {numeric: true}));
+                });
+                
+                s.grades = grades;
+            });
+        }
+
+        let filterRiskOnly = false;
+
+        function toggleFilter() {
+            filterRiskOnly = !filterRiskOnly;
+            const btn = document.getElementById('filter-btn');
+            if (filterRiskOnly) {
+                btn.classList.add('bg-red-50', 'border-red-200', 'text-red-700');
+                btn.classList.remove('bg-white', 'border-gray-300', 'text-gray-700');
+                btn.innerHTML = '<span>⚠️ Show All</span>';
+            } else {
+                btn.classList.remove('bg-red-50', 'border-red-200', 'text-red-700');
+                btn.classList.add('bg-white', 'border-gray-300', 'text-gray-700');
+                btn.innerHTML = '<span>⚠️ Show At-Risk Only</span>';
+            }
+            renderDashboard();
+        }
+
+        function renderDashboard() {
+            const grid = document.getElementById('school-grid');
+            grid.innerHTML = '';
+
+            // 1. Prepare & Sort List (Alphabetical)
+            let schools = Object.keys(schoolData).map(key => {
+                const s = schoolData[key];
+                // Determine Risk Status: Any Grade has < 15 active weeks
+                const hasRisk = Object.values(s.grades).some(g => g.activeCount < 15);
+                return {
+                    name: key,
+                    hasRisk,
+                    ...s
+                };
+            }).sort((a, b) => a.name.localeCompare(b.name));
+
+            // 2. Update Risk Stats
+            const riskCount = schools.filter(s => s.hasRisk).length;
+            const troubleEl = document.getElementById('trouble-count');
+            if (troubleEl) troubleEl.textContent = riskCount;
+
+            // 3. Filter
+            const searchInput = document.getElementById('search-input');
+            const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+            
+            schools = schools.filter(s => {
+                const matchName = s.name.toLowerCase().includes(searchTerm);
+                const matchRisk = filterRiskOnly ? s.hasRisk : true;
+                return matchName && matchRisk;
+            });
+
+            // 4. Render
+            if (schools.length === 0) {
+                grid.innerHTML = '<div class="col-span-full text-center py-10 text-gray-400">No schools matching criteria.</div>';
+                return;
+            }
+
+            schools.forEach(s => {
+                // Card Color Logic: Red tint if ANY risk, Green tint if perfect
+                let bgClass = s.hasRisk ? "bg-red-50 hover:bg-red-100 border-red-200" : "bg-green-50 hover:bg-green-100 border-green-200";
+                let titleClass = s.hasRisk ? "text-red-900" : "text-green-900";
+
+                // Generate GRADE List HTML
+                const gradeListHtml = Object.keys(s.grades).sort((a,b) => a.localeCompare(b, undefined, {numeric: true})).map(gName => {
+                    const g = s.grades[gName];
+                    const ratio = `${g.activeCount}/${g.totalWeeks}`;
+                    
+                    // Logic: Risk if < 15 active weeks
+                    const isLow = g.totalWeeks > 0 && g.activeCount < 15;
+                    const pct = g.totalWeeks > 0 ? Math.min(100, (g.activeCount / g.totalWeeks) * 100) : 0;
+                    
+                    const barColor = isLow ? "bg-red-500" : "bg-green-500";
+                    const icon = isLow ? "❗" : "✅"; 
+                    const textColor = isLow ? "text-red-700" : "text-green-700";
+
+                    return `
+                        <div class="mb-3 last:mb-0">
+                            <div class="flex justify-between items-center text-xs mb-1">
+                                <span class="font-bold text-gray-700">${gName} <span class="font-normal text-gray-400 text-[10px] ml-1">(${g.classCount} cls)</span></span>
+                                <span class="${textColor} font-bold flex items-center gap-1">
+                                    ${ratio} ${icon}
+                                </span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                                <div class="${barColor} h-2 rounded-full transition-all duration-500" style="width: ${pct}%"></div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                const card = document.createElement('div');
+                card.className = `cursor-pointer border rounded-lg p-4 transition-all shadow-sm flex flex-col h-full ${bgClass}`;
+                card.onclick = () => showDetail(s.name);
+                
+                card.innerHTML = `
+                    <div class="flex justify-between items-center mb-4 pb-2 border-b border-current border-opacity-10 ${titleClass}">
+                        <h3 class="text-lg font-bold truncate" title="${s.name}">${s.name}</h3>
+                        ${s.hasRisk ? '<span class="text-xl" title="Requires Make-up">⚠️</span>' : ''}
+                    </div>
+                    <div class="flex-grow overflow-y-auto max-h-64 pr-1 scrollbar-thin">
+                        ${gradeListHtml}
+                    </div>
+                    <div class="mt-3 pt-2 border-t border-current border-opacity-10 text-center">
+                        <span class="text-xs font-medium opacity-50">View Details</span>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function showDetail(schoolName) {
+            const data = schoolData[schoolName];
+            if (!data) return;
+
+            document.getElementById('dashboard-view').classList.add('hidden');
+            document.getElementById('detail-view').classList.remove('hidden');
+            document.getElementById('detail-title').textContent = `${schoolName} Detail Report`;
+            
+            const container = document.getElementById('detail-container');
+            container.innerHTML = '';
+
+            const sortedGradeKeys = Object.keys(data.grades).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+            // Helper for sorting academic weeks (Local scope to ensure availability)
+            const monthMap = { "Jan":0, "Feb":1, "Mar":2, "Apr":3, "May":4, "Jun":5, "Jul":6, "Aug":7, "Sep":8, "Oct":9, "Nov":10, "Dec":11 };
+            const getWeekVal = (str) => {
+                const match = str.match(/([A-Za-z]{3})\s+(\d+)/);
+                if (!match) return 9999;
+                const m = monthMap[match[1]] !== undefined ? monthMap[match[1]] : 0;
+                const d = parseInt(match[2]);
+                const adjustedM = (m < 4) ? m + 12 : m; 
+                return adjustedM * 100 + d;
+            };
+
+            sortedGradeKeys.forEach((gName, index) => {
+                const g = data.grades[gName];
+                
+                // 1. Prepare Timeline (All Weeks Sorted)
+                const allWeeks = Array.from(g.gradeAllWeeks).sort((a,b) => getWeekVal(a) - getWeekVal(b));
+                const missingSet = new Set(g.missingWeeks);
+                
+                // Timeline HTML (Grid)
+                const timelineHtml = allWeeks.map(w => {
+                    const isMissing = missingSet.has(w);
+                    const colorClass = isMissing ? "bg-red-50 text-red-700 border-red-200" : "bg-green-50 text-green-700 border-green-200";
+                    const icon = isMissing ? 
+                        '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>' : 
+                        '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
+                    
+                    return `
+                        <div class="px-3 py-2 rounded border text-xs flex items-center justify-between ${colorClass} transition-colors hover:shadow-sm" title="${isMissing ? 'Missed Week' : 'Active Week'}">
+                            <span class="truncate font-semibold">${w}</span>
+                            <span>${icon}</span>
+                        </div>
+                    `;
+                }).join('');
+
+                // 2. Prepare Topic Section
+                let topicHtml = '';
+                if (g.missingTopics.length > 0) {
+                    topicHtml = `
+                        <div class="bg-orange-50 border-l-4 border-orange-400 p-4 mb-4 rounded-r-lg">
+                             <p class="font-bold text-orange-800 text-sm uppercase tracking-wide mb-2">Recommended Make-up Topics</p>
+                             <div class="flex flex-wrap gap-2">
+                                ${g.missingTopics.map(t => `<span class="px-2 py-1 bg-white border border-orange-200 rounded text-sm text-orange-800 font-medium shadow-sm">${t}</span>`).join('')}
+                             </div>
+                        </div>
+                    `;
+                } else {
+                     topicHtml = `
+                        <div class="bg-green-50 border-l-4 border-green-400 p-4 mb-4 rounded-r-lg flex items-start">
+                             <div class="flex-shrink-0 mr-3">
+                                <svg class="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                             </div>
+                             <div>
+                                <p class="font-bold text-green-800 text-sm uppercase tracking-wide">All topics covered</p>
+                                <p class="text-green-700 text-xs mt-1">Excellent topic coverage for this grade.</p>
+                             </div>
+                        </div>
+                    `;
+                }
+
+                // 3. Class Detail Table (Hidden)
+                const classRows = Object.keys(data.classes)
+                    .filter(c => c.startsWith(gName))
+                    .sort((a,b) => a.localeCompare(b, undefined, {numeric: true}))
+                    .map((cName, cIdx) => {
+                         const c = data.classes[cName];
+                         const ratio = c.weekStats ? `${c.weekStats.active}/${c.weekStats.total}` : '-';
+                         const isLow = c.weekStats && c.weekStats.active < 15;
+                         
+                         const missedW = c.weekZeros.length > 0 ? c.weekZeros.length : '-';
+                         const missedT = c.topicZeros.length > 0 ? c.topicZeros.length : '-';
+
+                         // Timeline Logic for Class (similar to Grade)
+                         const cAllWeeks = Array.from(c.allWeekDates).sort((a,b) => getWeekVal(a) - getWeekVal(b));
+                         const cTimelineHtml = cAllWeeks.map(w => {
+                            const isActive = c.activeWeekDates.has(w);
+                            const colorClass = !isActive ? "bg-red-50 text-red-700 border-red-200 ring-1 ring-red-200" : "bg-green-50 text-green-700 border-green-200";
+                            const opacityClass = !isActive ? "opacity-100 font-medium" : "opacity-80";
+                            return `<div class="px-2 py-1 rounded border text-[10px] text-center whitespace-nowrap ${colorClass} ${opacityClass}">${w}</div>`;
+                         }).join('');
+
+                         const cTopicHtml = c.topicZeros.length > 0 
+                            ? c.topicZeros.map(t => `<span class="px-2 py-1 bg-purple-50 text-purple-700 border border-purple-100 rounded text-xs">${t}</span>`).join('')
+                            : '<span class="text-xs text-green-600 font-medium flex items-center gap-1"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> All topics covered</span>';
+
+                         const rowId = `detail-${index}-${cIdx}`;
+
+                         return `
+                            <tr onclick="document.getElementById('${rowId}').classList.toggle('hidden');" class="cursor-pointer hover:bg-blue-50 border-b last:border-0 transition-colors group">
+                                <td class="px-6 py-3 font-medium ${isLow ? 'text-red-600' : 'text-gray-900'} flex items-center gap-2">
+                                    <svg class="w-3 h-3 text-gray-400 group-hover:text-blue-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
+                                    ${cName}
+                                </td>
+                                <td class="px-6 py-3 text-center text-gray-500">${ratio}</td>
+                                <td class="px-6 py-3 text-center ${missedW !== '-' ? 'text-red-600 font-bold' : 'text-gray-400'}">${missedW}</td>
+                                <td class="px-6 py-3 text-center ${missedT !== '-' ? 'text-purple-600 font-bold' : 'text-gray-400'}">${missedT}</td>
+                            </tr>
+                            <tr id="${rowId}" class="hidden bg-gray-50 shadow-inner">
+                                <td colspan="4" class="px-8 py-4 border-b">
+                                    <div class="grid md:grid-cols-2 gap-6">
+                                        <div>
+                                            <h5 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Class Schedule Timeline</h5>
+                                            <div class="flex flex-wrap gap-1.5">
+                                                ${cTimelineHtml}
+                                            </div>
+                                        </div>
+                                        <div>
+                                             <h5 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Missed Topics</h5>
+                                             <div class="flex flex-wrap gap-1.5 align-start">
+                                                ${cTopicHtml}
+                                             </div>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                         `;
+                    }).join('');
+
+                const tableHtml = `
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-sm">
+                            <thead class="bg-gray-50 text-gray-500 uppercase text-xs font-semibold">
+                                <tr>
+                                    <th class="px-6 py-3 text-left">Class</th>
+                                    <th class="px-6 py-3 text-center">Active/Total</th>
+                                    <th class="px-6 py-3 text-center">Missed Weeks</th>
+                                    <th class="px-6 py-3 text-center">Missed Topics</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100 bg-white">${classRows}</tbody>
+                        </table>
+                    </div>
+                `;
+                
+                // 4. Construct Card
+                const card = document.createElement('div');
+                card.className = "bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden transition-shadow hover:shadow-md";
+                
+                const isGradeLow = g.activeCount < 15;
+                
+                card.innerHTML = `
+                    <div class="px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-100 gap-4">
+                        <div class="flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg ${isGradeLow ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}">
+                                ${gName.replace(/[^0-9]/g, '') || gName[0]}
+                            </div>
+                            <div>
+                                <h3 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+                                    ${gName}
+                                    <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-xs font-semibold border border-gray-200">${g.classCount} classes</span>
+                                </h3>
+                                <div class="flex items-center gap-2 text-sm mt-0.5">
+                                    <span class="text-gray-500">Progress:</span>
+                                    <span class="font-bold ${isGradeLow ? 'text-red-600' : 'text-green-600'}">${g.activeCount}/${g.totalWeeks} Weeks</span>
+                                    ${isGradeLow ? '<span class="px-2 py-0.5 rounded-full bg-red-100 text-red-800 text-xs font-bold ml-2">Concern</span>' : ''}
+                                </div>
+                            </div>
+                        </div>
+                        <button onclick="document.getElementById('classes-${index}').classList.toggle('hidden')" class="text-gray-500 hover:text-blue-600 text-sm font-medium border px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors flex items-center">
+                            Class Details
+                            <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                        </button>
+                    </div>
+                    
+                    <div class="p-6 bg-white">
+                         ${topicHtml}
+                         
+                         <div class="mt-4">
+                            <h4 class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                                Activity Timeline
+                                <div class="h-px bg-gray-200 flex-grow"></div>
+                            </h4>
+                            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                                ${timelineHtml}
+                            </div>
+                         </div>
+                    </div>
+
+                    <div id="classes-${index}" class="hidden border-t border-gray-100">
+                        ${tableHtml}
+                    </div>
+                `;
+                
+                container.appendChild(card);
+            });
+        }
+
+        function showDashboard() {
+            document.getElementById('detail-view').classList.add('hidden');
+            document.getElementById('dashboard-view').classList.remove('hidden');
+        }
+
+        // Init
+        loadData();
+    </script>
+</body>
+</html>
