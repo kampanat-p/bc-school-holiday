@@ -351,8 +351,8 @@
             
             // Strict key mapping
             schoolMap[sId] = {
-                // Modified: Prefer Full Name (school_name_en) over Code
-                name: s.school_name_en || s.school_code, 
+                // Modified: Prefer Code + Full Name
+                name: (s.school_code ? s.school_code : "") + (s.school_name_en ? " - " + s.school_name_en : ""), 
                 group: grp,
                 coordinator: coordName
             };
