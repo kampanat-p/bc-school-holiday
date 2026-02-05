@@ -69,7 +69,11 @@
     </div>
     
     <!-- Metrics Summary -->
-    <div class="grid grid-cols-4 gap-2 mt-2 text-[10px] text-center">
+    <div class="grid grid-cols-5 gap-2 mt-2 text-[10px] text-center">
+      <div onclick="filterSessionBy('Live')" class="bg-indigo-900/40 p-1 rounded cursor-pointer hover:bg-indigo-800 border border-transparent hover:border-indigo-400 animate-pulse">
+         <div class="text-indigo-200 font-bold">LIVE NOW</div>
+         <div class="font-bold text-white text-xs" id="met-live">0</div>
+      </div>
       <div onclick="filterSessionBy('Total')" class="bg-slate-700 p-1 rounded cursor-pointer hover:bg-slate-600 border border-transparent hover:border-slate-500">
          <div class="text-slate-400">Total</div>
          <div class="font-bold text-white text-xs" id="met-total">0</div>
@@ -347,7 +351,8 @@
             
             // Strict key mapping
             schoolMap[sId] = {
-                name: s.school_code || s.school_name_en, 
+                // Modified: Prefer Full Name (school_name_en) over Code
+                name: s.school_name_en || s.school_code, 
                 group: grp,
                 coordinator: coordName
             };
@@ -357,8 +362,18 @@
         const dashSessions = [];
         const cancellations = [];
         const filters = { teachers: new Set(), schools: new Set(), coordinators: new Set(), groups: new Set() };
-        const metrics = { total: 0, covered: 0, cancelBC: 0, cancelSchool: 0 };
-
+        const metrics = { total: 0, covered: 0, cancelBC: 0, cancelSchool: 0, live: 0 };
+        
+        // Time Calculation for Metrics (Snapshot)
+        const now = new Date();
+        const bkkTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Bangkok"}));
+        const currentH = bkkTime.getHours();
+        const currentM = bkkTime.getMinutes();
+        const currentTotalMins = currentH * 60 + currentM;
+        // Check date logic handled by caller (only passes today's sessions usually, or we check date)
+        // Note: 'sessions' passed here are filtered by date in reloadDashboard
+        // We assume `reloadDashboard` is called with Today if user is looking for "Live" accuracy
+        
         sessions.forEach(s => {
             const sId = String(s.school_id).trim();
             const sc = schoolMap[sId] || { name: 'Unknown', coordinator: 'Unassigned' };
@@ -379,6 +394,19 @@
                 status = rawStatus; // "Cancelled (BC)" etc
             } else if (rawStatus === "Substituted" || (s.actual_teacher_id && s.original_teacher_id && s.actual_teacher_id !== s.original_teacher_id)) {
                 status = "Cover";
+            }
+
+            // Calc Live Metric
+            let isLive = false;
+            if (!status.includes("Cancelled")) {
+                const [h1, m1] = startStr.split(':').map(Number);
+                const [h2, m2] = endStr.split(':').map(Number);
+                const startMins = h1 * 60 + m1;
+                const endMins = h2 * 60 + m2;
+                if (currentTotalMins >= startMins && currentTotalMins < endMins) {
+                     isLive = true;
+                     metrics.live++;
+                }
             }
 
             // Update Metrics
@@ -434,8 +462,8 @@
                      name: u.name,
                      type: u.type,
                      period: l.leave_type || "Leave", 
-                     reason: l.reason || "N/A", 
-                     impacts: [] // Will calc below to be safe
+                     reason: l.remark || "N/A", // Fixed: Use 'remark' column
+                     impacts: [] 
                  });
             }
         });
@@ -470,15 +498,29 @@
             });
 
             // Sort impacts by time ascending
-            impactList.sort((a,b) => a.time.localeCompare(b.time));
+            teacherObj.impacts = impactList.sort((a,b) => a.time.localeCompare(b.time));
 
-            return {
-                ...teacherObj,
-                impacts: impactList
-            };
+            return teacherObj;
         });
 
         // 4. Sort & Return
+        // Sort Absentees by first class time if they have one, else by Period string
+        absentees.sort((a,b) => {
+             // 1. Primary: Has impacts vs No impacts
+             const hasA = a.impacts.length > 0;
+             const hasB = b.impacts.length > 0;
+             if (hasA && !hasB) return -1;
+             if (!hasA && hasB) return 1;
+
+             // 2. Secondary: If both have impacts, sort by time of FIRST class
+             if (hasA && hasB) {
+                 return a.impacts[0].time.localeCompare(b.impacts[0].time);
+             }
+
+             // 3. Fallback: Name
+             return a.name.localeCompare(b.name);
+        });
+
         return {
             sessions: dashSessions.sort((a,b) => a.time.localeCompare(b.time)),
             cancellations: cancellations,
@@ -502,6 +544,7 @@
         document.getElementById('met-cover').innerText = data.metrics.covered;
         document.getElementById('met-bc').innerText = data.metrics.cancelBC;
         document.getElementById('met-sch').innerText = data.metrics.cancelSchool;
+        document.getElementById('met-live').innerText = data.metrics.live;
     }
 
     function showStatus(type, msg) {
@@ -647,6 +690,23 @@
         if (statusMode === 'Cancelled (BC)' && !s.status.includes('Cancelled (BC)')) return false;
         if (statusMode === 'Cancelled (School)' && !s.status.includes('Cancelled (School)')) return false;
 
+        // NEW: Live Check
+        if (statusMode === 'Live') {
+             if (s.status.includes('Cancelled')) return false;
+             
+             // Recalculate live status here to be sure (s.start_time is stored only as string 00:00-00:00 in 's.time')
+             const [t1, t2] = s.time.split('-');
+             if (!t1 || !t2) return false;
+             const [h1, m1] = t1.split(':').map(Number);
+             const [h2, m2] = t2.split(':').map(Number);
+             const startMins = h1 * 60 + m1;
+             const endMins = h2 * 60 + m2;
+             
+             // Must be on Today & Time range
+             if (!isToday) return false;
+             if (currentTotalMins < startMins || currentTotalMins >= endMins) return false; 
+        }
+
         // 2. Check Dropdown Filter
         if (val === 'all') return true;
         if (currentFilterMode === 'teacher') return s.teacher === val;
@@ -710,9 +770,10 @@
             <div class="flex justify-between items-start">
               <div>
                 <div class="flex items-center">
-                  <span class="font-bold text-lg" style="color:${titleColor}">${s.school}</span>
-                  <span class="text-xs bg-white/50 text-gray-800 px-1 rounded ml-2 border border-black/10">${s.class}</span>
+                  <span class="font-bold text-lg" style="color:${titleColor}">${s.class}</span> <!-- Primary: Class Name -->
                 </div>
+                <div class="text-[11px] opacity-70 mb-1" style="color:${titleColor}">${s.school}</div> <!-- Secondary: School Name -->
+                
                 <div class="text-xs text-gray-800 mt-1 flex items-center">
                     <span class="opacity-80">🕒 ${s.time}</span>
                     ${isLive ? '<span class="badge-live shadow-sm">LIVE</span>' : ''}
@@ -802,7 +863,7 @@
         
         const impactHtml = p.impacts.length > 0 
           ? `<div class="mt-2 bg-gray-50 rounded p-2 border border-gray-200">
-               <p class="text-[10px] font-bold text-gray-500 mb-1">ตารางสอนที่กระทบ (${p.impacts.length}):</p>
+               <p class="text-[10px] font-bold text-gray-500 mb-1">Impacted Schedule (${p.impacts.length}):</p>
                ${p.impacts.map(i => {
                   let statusClass = i.status === 'Cover' ? 'text-green-600' : (i.status.includes('Cancel') ? 'text-red-600' : 'text-gray-600');
                   let icon = i.status === 'Cover' ? '<i class="fas fa-sync-alt"></i>' : (i.status.includes('Cancel') ? '<i class="fas fa-times-circle"></i>' : '<i class="fas fa-question-circle"></i>');
@@ -811,9 +872,9 @@
                   return `
                   <div class="flex justify-between items-center text-[11px] py-1 border-b border-gray-100 last:border-0">
                     <div>
-                      <span class="font-mono text-gray-500">${i.time}</span> 
-                      <span class="font-bold text-gray-700 ml-1">${i.school}</span>
-                      <span class="text-xs bg-gray-100 text-gray-500 px-1 rounded ml-1">${i.className || ''}</span>
+                      <span class="font-mono text-gray-500 w-8 inline-block">${i.time}</span> 
+                      <span class="font-bold text-gray-800 ml-1 text-xs">${i.className || 'Class'}</span>
+                      <span class="text-[10px] text-gray-400 ml-1">(${i.school})</span>
                     </div>
                     <div class="${statusClass} flex items-center gap-1">
                       ${icon} ${detail}
