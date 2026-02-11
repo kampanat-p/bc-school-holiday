@@ -1823,8 +1823,11 @@
         btn.innerText = "Saving..."; btn.disabled = true;
 
         try {
+            // Target ID: Use originalId (DB ID) to be safe
+            const targetId = currentEditEvent.originalId || currentEditEvent.id;
+            
             // 1. Get Log History
-            const { data: currentData } = await db.from('requests_log').select('change_log').eq('id', currentEditEvent.id).single();
+            const { data: currentData } = await db.from('requests_log').select('change_log').eq('id', targetId).single();
             
             // 2. Build New Log Entry
             let newLog = [];
@@ -1847,16 +1850,40 @@
                 last_edited_by: editorName // Store signature in dedicated column
             };
 
-            const { error } = await db.from('requests_log').update(updatePayload).eq('id', currentEditEvent.id);
+            const { error } = await db.from('requests_log').update(updatePayload).eq('id', targetId);
+            
             if(error) {
-                // Fallback: If 'change_log' or 'last_edited_by' column missing, try saving basic data only
-                if(error.message && (error.message.includes('change_log') || error.message.includes('last_edited_by'))) {
-                    console.warn("Optional columns missing, saving basic data only.");
-                    delete updatePayload.change_log;
-                    delete updatePayload.last_edited_by;
-                    const { error: retryErr } = await db.from('requests_log').update(updatePayload).eq('id', currentEditEvent.id);
-                    if(retryErr) throw retryErr;
-                } else throw error;
+                console.error("Initial Save Failed:", error);
+                
+                // Identify specific culprits from the error message
+                const msgLower = (error.message || "").toLowerCase();
+                const failChangeLog = msgLower.includes('change_log') || msgLower.includes('changelog');
+                const failSignature = msgLower.includes('last_edited_by');
+                
+                if (failChangeLog || failSignature) {
+                     let warningMsg = "Update Partial Success:\n";
+                     
+                     if (failChangeLog) {
+                         console.warn("Dropping change_log from payload");
+                         delete updatePayload.change_log;
+                         warningMsg += "- History Log ('change_log') could not be saved (Column missing?)\n";
+                     }
+                     if (failSignature) {
+                         console.warn("Dropping last_edited_by from payload");
+                         delete updatePayload.last_edited_by;
+                         warningMsg += "- Signature ('last_edited_by') could not be saved (Column missing?)\n";
+                     }
+                     
+                     // Retry with cleaned payload
+                     const { error: retryErr } = await db.from('requests_log').update(updatePayload).eq('id', targetId);
+                     
+                     if(retryErr) throw retryErr; // If it fails again, hard crash
+                     else alert(warningMsg + "\nCore details (dates/sessions) were saved successfully.");
+                     
+                } else {
+                    // Some other error (Permissions, Network, etc)
+                    throw error;
+                }
             }
 
             alert("Ticket updated successfully!");
