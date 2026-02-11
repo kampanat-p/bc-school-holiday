@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Executive Summary - Braincloud</title>
+    
+    <!-- Libraries -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap');
+        body { font-family: 'Sarabun', sans-serif; background-color: #f8fafc; }
+        
+        .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border: 1px solid #e2e8f0; }
+        .score-card { transition: transform 0.2s; }
+        .score-card:hover { transform: translateY(-2px); }
+        
+        /* Table Styling */
+        .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th { background-color: #f1f5f9; color: #475569; font-weight: 600; text-align: left; padding: 12px; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
+        td { padding: 10px 12px; border-bottom: 1px solid #e2e8f0; color: #334155; }
+        tr:hover { background-color: #f8fafc; }
+        
+        .dropdown-check-list { display: inline-block; position: relative; }
+        .dropdown-check-list .anchor { position: relative; cursor: pointer; display: flex; justify-content: defined; align-items: center; padding: 8px; border: 1px solid #e2e8f0; border-radius: 0.25rem; font-size: 0.75rem; background: white; min-width: 150px; }
+        .dropdown-check-list .items { display: none; position: absolute; top: 100%; left: 0; right: 0; border: 1px solid #e2e8f0; background: #fff; z-index: 50; max-height: 200px; overflow-y: auto; padding: 8px; border-radius: 0.25rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        .dropdown-check-list.visible .items { display: block; }
+        .item-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 0.75rem; cursor: pointer; }
+        .item-row:hover { background-color: #f1f5f9; }
+    </style>
+</head>
+<body class="text-slate-800" onclick="closeDropdowns(event)">
+
+    <!-- Header & Filters -->
+    <header class="bg-white border-b sticky top-0 z-30 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <h1 class="text-2xl font-bold text-slate-800"><i class="fas fa-chart-line text-blue-600 mr-2"></i>Executive Summary</h1>
+                    <p class="text-xs text-slate-500 mt-1">Operational Performance & Statistics</p>
+                </div>
+                
+                <div class="flex flex-wrap items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
+                    <!-- Date Range -->
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-bold text-slate-500 uppercase">Range:</span>
+                        <input type="date" id="startDate" class="text-xs p-2 border rounded shadow-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                        <span class="text-slate-400">-</span>
+                        <input type="date" id="endDate" class="text-xs p-2 border rounded shadow-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+
+                    <div class="h-4 w-px bg-slate-300 mx-1"></div>
+                    
+                    <!-- Filters -->
+                    <div id="groupFilterWrapper" class="dropdown-check-list" onclick="toggleDropdown(event)">
+                        <span class="anchor" id="groupFilterAnchor">Select Groups</span>
+                        <ul class="items" id="groupFilterItems">
+                            <!-- Items populated by JS -->
+                        </ul>
+                    </div>
+
+                    <select id="teacherFilter" class="text-xs p-2 border rounded shadow-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none max-w-[150px]">
+                        <option value="all">All Teachers</option>
+                    </select>
+
+                    <button onclick="loadDashboard()" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2 px-4 rounded shadow transition flex items-center gap-2">
+                        <i class="fas fa-sync-alt"></i> Update
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        
+        <!-- Section 1: Score Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="card score-card flex flex-col justify-between border-l-4 border-l-blue-500">
+                <div class="text-slate-500 text-xs font-bold uppercase tracking-wider">Total Classes</div>
+                <div class="text-3xl font-bold mt-2 text-slate-800" id="sc-total">0</div>
+                <div class="text-[10px] text-slate-400 mt-1">Selected Period</div>
+            </div>
+            <div class="card score-card flex flex-col justify-between border-l-4 border-l-green-500">
+                <div class="text-slate-500 text-xs font-bold uppercase tracking-wider">Covered Classes</div>
+                <div class="text-3xl font-bold mt-2 text-green-600" id="sc-covered">0</div>
+                <div class="text-[10px] text-slate-400 mt-1">Successfully substituted</div>
+            </div>
+            <div class="card score-card flex flex-col justify-between border-l-4 border-l-red-500">
+                <div class="text-slate-500 text-xs font-bold uppercase tracking-wider">Cancelled (BC)</div>
+                <div class="text-3xl font-bold mt-2 text-red-600" id="sc-cancel-bc">0</div>
+                <div class="text-[10px] text-slate-400 mt-1">Internal issues</div>
+            </div>
+            <div class="card score-card flex flex-col justify-between border-l-4 border-l-orange-500">
+                <div class="text-slate-500 text-xs font-bold uppercase tracking-wider">Cancelled (School)</div>
+                <div class="text-3xl font-bold mt-2 text-orange-600" id="sc-cancel-sch">0</div>
+                <div class="text-[10px] text-slate-400 mt-1">Client requested</div>
+            </div>
+        </div>
+
+        <!-- Section 2: Proportions Charts -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Donut -->
+            <div class="card lg:col-span-1 min-h-[300px]">
+                <h3 class="font-bold text-slate-700 mb-4 text-sm">Overall Status Distribution</h3>
+                <div class="h-[250px] flex justify-center">
+                    <canvas id="chartDonut"></canvas>
+                </div>
+            </div>
+
+            <!-- Stacked Bar (Group) -->
+            <div class="card lg:col-span-2 min-h-[300px]">
+                <h3 class="font-bold text-slate-700 mb-4 text-sm">Status by School Group</h3>
+                <div class="h-[250px]">
+                    <canvas id="chartStackedGroup"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 3: Detailed Bar Charts -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="card min-h-[350px]">
+                <h3 class="font-bold text-slate-700 mb-4 text-sm">Classes by School Group (Total Volume)</h3>
+                <div class="h-[300px]">
+                    <canvas id="chartBarGroup"></canvas>
+                </div>
+            </div>
+            <div class="card min-h-[350px]">
+                <h3 class="font-bold text-slate-700 mb-4 text-sm">Top 15 Schools by Volume</h3>
+                <div class="h-[300px]">
+                    <canvas id="chartBarSchool"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 4: Time Series -->
+        <div class="card">
+            <h3 class="font-bold text-slate-700 mb-4 text-sm">Daily Class Volume (Time Series)</h3>
+            <div class="h-[300px]">
+                <canvas id="chartTimeSeries"></canvas>
+            </div>
+        </div>
+
+        <!-- Section 5: Teacher Rankings -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- Teaching Resp -->
+            <div class="card">
+                <div class="flex justify-between items-start mb-3">
+                   <div>
+                       <h3 class="font-bold text-slate-700 text-sm">👑 Most Active Teachers</h3>
+                       <div class="text-[10px] text-slate-500 mt-1" id="teachStats">Range: 0 - 0 classes</div>
+                   </div>
+                   <span class="text-[10px] bg-slate-100 px-2 py-0.5 rounded text-slate-500">Top 15</span>
+                </div>
+                <div class="overflow-y-auto max-h-[300px]">
+                    <table class="w-full">
+                        <tbody id="rankTeaching"></tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Covering -->
+            <div class="card">
+                <h3 class="font-bold text-slate-700 mb-3 text-sm flex items-center justify-between">
+                    <span>🛡️ Top Covering Teachers</span>
+                    <span class="text-[10px] bg-green-50 px-2 py-0.5 rounded text-green-700">Top 10</span>
+                </h3>
+                <div class="overflow-y-auto max-h-[300px]">
+                    <table class="w-full">
+                        <tbody id="rankCovering"></tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Covered -->
+            <div class="card">
+                <h3 class="font-bold text-slate-700 mb-3 text-sm flex items-center justify-between">
+                    <span>📉 Most Covered Teachers</span>
+                    <span class="text-[10px] bg-red-50 px-2 py-0.5 rounded text-red-700">Top 10</span>
+                </h3>
+                <div class="overflow-y-auto max-h-[300px]">
+                    <table class="w-full">
+                        <tbody id="rankCovered"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section 6: Detailed Record Table (Paginated) -->
+        <div class="card">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-bold text-slate-700 text-sm">Detailed Class Records</h3>
+                <div class="flex gap-2">
+                    <button onclick="changePage(-1)" id="btnPrev" class="px-3 py-1 text-xs border rounded hover:bg-slate-50 disabled:opacity-50">Prev</button>
+                    <span id="pageInfo" class="text-xs self-center px-2 font-mono text-slate-500">Page 1</span>
+                    <button onclick="changePage(1)" id="btnNext" class="px-3 py-1 text-xs border rounded hover:bg-slate-50 disabled:opacity-50">Next</button>
+                </div>
+            </div>
+            
+            <div class="table-container">
+                <table class="w-full">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Time</th>
+                            <th>School</th>
+                            <th>Group</th>
+                            <th>Class</th>
+                            <th>Original Teacher</th>
+                            <th>Actual Teacher</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="detailTableBody">
+                        <tr><td colspan="8" class="text-center py-8 text-slate-400">Please select a date range and click Update</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- JS Logic -->
+    <script>
+        // --- CONFIG ---
+        const SUPABASE_URL = "https://cgznmxcecljfybcgujjb.supabase.co";
+        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ";
+        
+        let sbClient = null;
+        let chartInstances = {}; // Store chart objs for destruction
+        let metaData = { schools: {}, users: {} }; // Cache
+        
+        // Pagination State
+        let currentPage = 0;
+        const pageSize = 50;
+        let totalRecords = 0;
+
+        // --- INIT ---
+        window.onload = async () => {
+             // Init Supabase
+             sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+             // Set default dates (This Month)
+             const now = new Date();
+             const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+             const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+             
+             document.getElementById('startDate').value = firstDay.toISOString().split('T')[0];
+             document.getElementById('endDate').value = lastDay.toISOString().split('T')[0];
+
+             // Load Metadata first
+             await loadMetadata();
+             
+             // Initial Load
+             loadDashboard();
+        };
+
+        async function loadMetadata() {
+            try {
+                // Fetch Schools
+                const { data: schools } = await sbClient.from('dim_school').select('school_id, school_code, school_name_en, school_group');
+                const groupContainer = document.getElementById('groupFilterItems');
+                const groups = new Set();
+                
+                schools.forEach(s => {
+                    const id = String(s.school_id).trim();
+                    // IGNORE TRIAL SCHOOL globally as requested
+                    if (s.school_group === 'Trial School') return;
+                    
+                    // Improved School Name Display: [CODE] Name
+                    const code = s.school_code ? `[${s.school_code}] ` : '';
+                    const name = s.school_name_en || 'Unknown';
+                    
+                    metaData.schools[id] = {
+                        name: code + name,
+                        code: s.school_code,
+                        group: s.school_group || "Other"
+                    };
+                    
+                    if(s.school_group) groups.add(s.school_group);
+                });
+
+                // Populate Group Filter (Checkbox)
+                // Add "Select All"
+                groupContainer.innerHTML = `
+                    <li class="item-row font-bold border-b pb-2 mb-2">
+                         <input type="checkbox" id="grp-all" checked onchange="toggleAllGroups(this)"> <label for="grp-all">Select All</label>
+                    </li>
+                `;
+                
+                Array.from(groups).sort().forEach(g => {
+                    groupContainer.innerHTML += `
+                        <li class="item-row">
+                             <input type="checkbox" class="grp-chk" value="${g}" checked onchange="updateGroupAnchor()"> <label>${g}</label>
+                        </li>
+                    `;
+                });
+                updateGroupAnchor(); // Init Text
+
+                // Fetch Users
+                const { data: users } = await sbClient.from('dim_user').select('user_id, firstname_en, lastname_en, nickname_en').order('firstname_en');
+                const teacherFilter = document.getElementById('teacherFilter');
+                
+                users.forEach(u => {
+                    const id = String(u.user_id).trim();
+                    let n = u.firstname_en;
+                    if(u.lastname_en) n += " " + u.lastname_en.charAt(0) + ".";
+                    if(u.nickname_en) n += ` (${u.nickname_en})`;
+                    
+                    metaData.users[id] = n;
+                    
+                    // Add to filter
+                    const opt = document.createElement('option');
+                    opt.value = id;
+                    opt.text = n;
+                    teacherFilter.appendChild(opt);
+                });
+
+            } catch(e) { console.error("Meta Error", e); }
+        }
+
+        // --- FILTER UI LOGIC ---
+        function toggleDropdown(e) {
+            e.stopPropagation();
+            document.getElementById('groupFilterWrapper').classList.toggle('visible');
+        }
+        
+        function closeDropdowns(e) {
+            if(!e.target.closest('.dropdown-check-list')) {
+                document.querySelectorAll('.dropdown-check-list').forEach(el => el.classList.remove('visible'));
+            }
+        }
+
+        function toggleAllGroups(source) {
+            document.querySelectorAll('.grp-chk').forEach(c => c.checked = source.checked);
+            updateGroupAnchor();
+        }
+
+        function updateGroupAnchor() {
+            const all = document.querySelectorAll('.grp-chk');
+            const checked = document.querySelectorAll('.grp-chk:checked');
+            const anchor = document.getElementById('groupFilterAnchor');
+            
+            if (checked.length === 0) anchor.innerText = "Select Groups";
+            else if (checked.length === all.length) anchor.innerText = "All Groups";
+            else anchor.innerText = `${checked.length} Groups Selected`;
+        }
+
+        function getSelectedGroups() {
+            const all = document.querySelectorAll('.grp-chk');
+            const checked = document.querySelectorAll('.grp-chk:checked');
+            if (checked.length === all.length) return 'all';
+            return Array.from(checked).map(c => c.value);
+        }
+
+        // --- MAIN LOAD ---
+        async function loadDashboard() {
+            const start = document.getElementById('startDate').value;
+            const end = document.getElementById('endDate').value;
+            // Get selected groups array or 'all'
+            const selectedGroups = getSelectedGroups(); 
+            const teacherVal = document.getElementById('teacherFilter').value;
+            
+            if(!start || !end) return alert("Please select a valid date range.");
+
+            // 1. Fetch Aggregation Data (Batched to bypass Supabase 1000 row limit)
+            let rawData = [];
+            let fetchMore = true;
+            let page = 0;
+            const CHUNK_SIZE = 1000;
+            
+            // UI Feedback
+            const btn = document.querySelector('button[onclick="loadDashboard()"]');
+            if(btn) {
+                var originalBtnText = btn.innerHTML;
+                btn.disabled = true;
+            }
+
+            try {
+                while(fetchMore) {
+                    if(btn) btn.innerHTML = `<i class="fas fa-circle-notch fa-spin"></i> Fetching... (${rawData.length})`;
+                    
+                    const { data, error } = await sbClient.from('fact_daily_session')
+                        .select('session_id, date, start_time, end_time, school_id, status, original_teacher_id, actual_teacher_id')
+                        .gte('date', start)
+                        .lte('date', end)
+                        .range(page * CHUNK_SIZE, (page + 1) * CHUNK_SIZE - 1);
+
+                    if(error) throw error;
+                    
+                    if(data && data.length > 0) {
+                        rawData = rawData.concat(data);
+                        page++;
+                        // If we got fewer than requested, we are at the end
+                        if(data.length < CHUNK_SIZE) fetchMore = false;
+                    } else {
+                        fetchMore = false;
+                    }
+                }
+            } catch(error) {
+                 alert("Error loading data: " + error.message);
+                 if(btn) {
+                    btn.innerHTML = originalBtnText;
+                    btn.disabled = false;
+                 }
+                 return;
+            }
+
+            // Restore Button
+            if(btn) {
+                btn.innerHTML = originalBtnText;
+                btn.disabled = false;
+            }
+            
+            // Client Side Filtering (allows complex logic without complex DB queries)
+            let filteredData = [];
+
+            // 1. Initial Pass: Apply School Group Filter & Metadata Existence
+            rawData.forEach(r => {
+                const sId = String(r.school_id).trim();
+                const school = metaData.schools[sId];
+                
+                // Exclude if school not in metadata (e.g. Trial School filtered out or invalid ID)
+                if (!school) return; 
+                
+                // Group Filter Logic
+                if (Array.isArray(selectedGroups)) {
+                    // Check if group is in selected array
+                    if (!selectedGroups.includes(school.group)) return;
+                }
+                // If selectedGroups === 'all', pass
+
+                // Teacher Filter
+                if (teacherVal !== 'all') {
+                    const org = String(r.original_teacher_id).trim();
+                    const act = String(r.actual_teacher_id).trim();
+                    if (org !== teacherVal && act !== teacherVal) return;
+                }
+
+                filteredData.push(r);
+            });
+
+            // 2. Process & Render Charts
+            processAndRender(filteredData, start, end);
+
+            // 3. Reset Pagination & Load Table (Server Side)
+            currentPage = 0;
+            loadTablePage(selectedGroups); // Pass group filter
+        }
+
+        function processAndRender(data, startDate, endDate) {
+            // -- METRICS --
+            const stats = {
+                total: data.length,
+                covered: 0,
+                cancelBC: 0,
+                cancelSch: 0,
+                byGroup: {},
+                bySchool: {},
+                byStatusOverall: { Normal: 0, Covered: 0, CancelBC: 0, CancelSch: 0 },
+                byStatusGroup: {}, // { GroupName: { Normal: 0... } }
+                timeSeries: {}, // { Date: Count }
+                teachers: { teach: {}, cover: {}, covered: {} } // Counts
+            };
+
+            // Init Time Series (Fill Zeros)
+            if(startDate && endDate) {
+                let curr = new Date(startDate);
+                const last = new Date(endDate);
+                while(curr <= last) {
+                    const yyyy = curr.getFullYear();
+                    const mm = String(curr.getMonth() + 1).padStart(2, '0');
+                    const dd = String(curr.getDate()).padStart(2, '0');
+                    stats.timeSeries[`${yyyy}-${mm}-${dd}`] = 0;
+                    curr.setDate(curr.getDate() + 1);
+                }
+            }
+
+            data.forEach(r => {
+                const sId = String(r.school_id).trim();
+                const schoolInfo = metaData.schools[sId] || { name: 'Unknown', group: 'Other' };
+                const grp = schoolInfo.group;
+                
+                // Status Logic
+                let st = "Normal";
+                const rowStatus = String(r.status || "");
+                if (rowStatus.startsWith("Cancelled")) {
+                    if (rowStatus.includes("School")) st = "CancelSch";
+                    else st = "CancelBC"; // Default to BC if unspecified or explicit BC
+                } else if (rowStatus === "Substituted" || (r.original_teacher_id && r.actual_teacher_id && r.original_teacher_id !== r.actual_teacher_id)) {
+                    st = "Covered";
+                }
+
+                // Global Counts
+                if (st === "Covered") stats.covered++;
+                if (st === "CancelBC") stats.cancelBC++;
+                if (st === "CancelSch") stats.cancelSch++;
+                stats.byStatusOverall[st]++;
+
+                // Group Counts
+                stats.byGroup[grp] = (stats.byGroup[grp] || 0) + 1;
+                
+                // School Counts
+                stats.bySchool[schoolInfo.name] = (stats.bySchool[schoolInfo.name] || 0) + 1;
+
+                // Stacked Group Data
+                if (!stats.byStatusGroup[grp]) stats.byStatusGroup[grp] = { Normal:0, Covered:0, CancelBC:0, CancelSch:0 };
+                stats.byStatusGroup[grp][st]++;
+
+                // Time Series
+                if (stats.timeSeries[r.date] !== undefined) {
+                    stats.timeSeries[r.date]++;
+                } else if (!startDate) { 
+                    // Fallback if no range passed (shouldn't happen with new logic)
+                    stats.timeSeries[r.date] = (stats.timeSeries[r.date] || 0) + 1;
+                }
+
+                // Teacher Stats
+                const actId = String(r.actual_teacher_id).trim();
+                const orgId = String(r.original_teacher_id).trim();
+                
+                if (st !== "CancelBC" && st !== "CancelSch") {
+                    // Teaching Count (Actual) - Only if class happened
+                    if(actId) stats.teachers.teach[actId] = (stats.teachers.teach[actId] || 0) + 1;
+                    
+                    if (st === "Covered") {
+                         // Covering (Actual did the cover)
+                         if(actId) stats.teachers.cover[actId] = (stats.teachers.cover[actId] || 0) + 1;
+                         // Covered (Original was covered)
+                         if(orgId) stats.teachers.covered[orgId] = (stats.teachers.covered[orgId] || 0) + 1;
+                    }
+                }
+            });
+
+            // -- SCORECARDS --
+            document.getElementById('sc-total').innerText = stats.total.toLocaleString();
+            document.getElementById('sc-covered').innerText = stats.covered.toLocaleString();
+            // document.getElementById('sc-covered').parentElement.title = `Rate: ${((stats.covered/stats.total)*100).toFixed(1)}%`;
+            document.getElementById('sc-cancel-bc').innerText = stats.cancelBC.toLocaleString();
+            document.getElementById('sc-cancel-sch').innerText = stats.cancelSch.toLocaleString();
+            
+            // -- STATS MIN/MAX --
+            const teachingCounts = Object.values(stats.teachers.teach);
+            if(teachingCounts.length > 0) {
+                const max = Math.max(...teachingCounts);
+                const min = Math.min(...teachingCounts);
+                document.getElementById('teachStats').innerText = `Range: ${min} - ${max} classes per teacher (Avg: ${(stats.total / teachingCounts.length).toFixed(1)})`;
+            } else {
+                document.getElementById('teachStats').innerText = `Range: 0 - 0 classes`;
+            }
+
+            // -- CHARTS --
+            renderDonut(stats.byStatusOverall);
+            renderStackedBar(stats.byStatusGroup);
+            renderBarGroup(stats.byGroup);
+            renderBarSchool(stats.bySchool);
+            renderTimeSeries(stats.timeSeries);
+            
+            // -- RANKINGS --
+            renderRanking('rankTeaching', stats.teachers.teach, 15);
+            renderRanking('rankCovering', stats.teachers.cover, 10);
+            renderRanking('rankCovered', stats.teachers.covered, 10);
+        }
+
+        // --- CHART RENDERING HELPERS ---
+        function renderDonut(data) {
+            const ctx = document.getElementById('chartDonut').getContext('2d');
+            if(chartInstances.donut) chartInstances.donut.destroy();
+            
+            chartInstances.donut = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Normal', 'Covered', 'Cancel (BC)', 'Cancel (Sch)'],
+                    datasets: [{
+                        data: [data.Normal, data.Covered, data.CancelBC, data.CancelSch],
+                        backgroundColor: ['#e2e8f0', '#22c55e', '#ef4444', '#f97316'],
+                        borderWidth: 0
+                    }]
+                },
+                options: { maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: {size: 10} } } } }
+            });
+        }
+
+        function renderStackedBar(groupData) {
+            const ctx = document.getElementById('chartStackedGroup').getContext('2d');
+            if(chartInstances.stacked) chartInstances.stacked.destroy();
+            
+            const labels = Object.keys(groupData).sort();
+            const datasetNormal = labels.map(l => groupData[l].Normal);
+            const datasetCover = labels.map(l => groupData[l].Covered);
+            const datasetCBC = labels.map(l => groupData[l].CancelBC);
+            const datasetCSch = labels.map(l => groupData[l].CancelSch);
+
+            chartInstances.stacked = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Normal', data: datasetNormal, backgroundColor: '#e2e8f0', stack: 'Stack 0' },
+                        { label: 'Covered', data: datasetCover, backgroundColor: '#22c55e', stack: 'Stack 0' },
+                        { label: 'Cancel (BC)', data: datasetCBC, backgroundColor: '#ef4444', stack: 'Stack 0' },
+                        { label: 'Cancel (Sch)', data: datasetCSch, backgroundColor: '#f97316', stack: 'Stack 0' },
+                    ]
+                },
+                options: { 
+                    maintainAspectRatio: false, 
+                    scales: { x: { stacked: true }, y: { stacked: true } },
+                    plugins: { legend: { position: 'bottom', labels: { boxWidth: 10 } } }
+                }
+            });
+        }
+
+        function renderBarGroup(data) {
+            const ctx = document.getElementById('chartBarGroup').getContext('2d');
+            if(chartInstances.barGroup) chartInstances.barGroup.destroy();
+            
+            // Sort by Value
+            const sorted = Object.entries(data).sort((a,b) => b[1] - a[1]);
+            
+            chartInstances.barGroup = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sorted.map(x => x[0]),
+                    datasets: [{
+                        label: 'Classes',
+                        data: sorted.map(x => x[1]),
+                        backgroundColor: '#3b82f6',
+                        borderRadius: 4
+                    }]
+                },
+                options: { maintainAspectRatio: false, indexAxis: 'y' }
+            });
+        }
+        
+        function renderBarSchool(data) {
+            const ctx = document.getElementById('chartBarSchool').getContext('2d');
+            if(chartInstances.barSchool) chartInstances.barSchool.destroy();
+            
+            // Top 15
+            const sorted = Object.entries(data).sort((a,b) => b[1] - a[1]).slice(0, 15);
+            
+            chartInstances.barSchool = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sorted.map(x => x[0]),
+                    datasets: [{
+                        label: 'Classes',
+                        data: sorted.map(x => x[1]),
+                        backgroundColor: '#6366f1',
+                        borderRadius: 4
+                    }]
+                },
+                options: { maintainAspectRatio: false, indexAxis: 'y' }
+            });
+        }
+
+        function renderTimeSeries(data) {
+            const ctx = document.getElementById('chartTimeSeries').getContext('2d');
+            if(chartInstances.timeSeries) chartInstances.timeSeries.destroy();
+            
+            const rawLabels = Object.keys(data).sort();
+            const values = rawLabels.map(d => data[d]);
+            
+            // Nice formatting: "Mon 11 Feb"
+            const displayLabels = rawLabels.map(d => {
+                const parts = d.split('-');
+                const localDate = new Date(parts[0], parts[1]-1, parts[2]); // Force Local Midnight
+                return localDate.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+            });
+
+            chartInstances.timeSeries = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: displayLabels,
+                    datasets: [{
+                        label: 'Daily Sessions',
+                        data: values,
+                        borderColor: '#0ea5e9',
+                        backgroundColor: 'rgba(14, 165, 233, 0.1)',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 3,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: { 
+                    maintainAspectRatio: false, 
+                    scales: { y: { beginAtZero: true } },
+                    interaction: {
+                        mode: 'index',
+                        intersect: false, // Hover anywhere on the x-axis index
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                title: function(context) {
+                                    return context[0].label; // Use the nicely formatted label
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderRanking(elId, data, topN) {
+            const tbody = document.getElementById(elId);
+            tbody.innerHTML = '';
+            
+            // Sort
+            const sorted = Object.entries(data).sort((a,b) => b[1] - a[1]).slice(0, topN);
+            
+            if(sorted.length === 0) {
+                 tbody.innerHTML = '<tr><td class="text-xs text-slate-400 text-center">No data</td></tr>';
+                 return;
+            }
+
+            sorted.forEach(([id, count], idx) => {
+                const name = metaData.users[id] || `Unknown (${id})`;
+                const rank = idx + 1;
+                let medal = rank;
+                if(rank === 1) medal = '🥇';
+                if(rank === 2) medal = '🥈';
+                if(rank === 3) medal = '🥉';
+                
+                tbody.innerHTML += `
+                    <tr class="text-xs">
+                        <td class="w-8 font-bold text-center">${medal}</td>
+                        <td>${name}</td>
+                        <td class="text-right font-bold text-slate-600">${count}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        // --- TABLE PAGINATION ---
+        async function loadTablePage(selectedGroups) {
+            const tbody = document.getElementById('detailTableBody');
+            const pageInfo = document.getElementById('pageInfo');
+            const btnPrev = document.getElementById('btnPrev');
+            const btnNext = document.getElementById('btnNext');
+            
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4"><div class="loader mx-auto"></div></td></tr>';
+            
+            const start = document.getElementById('startDate').value;
+            const end = document.getElementById('endDate').value;
+            const teacherVal = document.getElementById('teacherFilter').value;
+            
+            // Re-fetch logic for group (using default 'all' if not passed from param to avoid breaking initial call)
+            if(!selectedGroups) selectedGroups = getSelectedGroups();
+
+            const rangeStart = currentPage * pageSize;
+            const rangeEnd = rangeStart + pageSize - 1;
+
+            // Start building Query
+            let query = sbClient.from('fact_daily_session')
+                .select('*, dim_school!inner(school_group)', { count: 'exact' })
+                .gte('date', start)
+                .lte('date', end)
+                .order('date', { ascending: false })
+                .order('start_time', { ascending: true })
+                .range(rangeStart, rangeEnd);
+            
+            // Apply Group Filter (Multi-select)
+            // Supabase 'in' query
+            if (Array.isArray(selectedGroups) && selectedGroups.length > 0) {
+                 query = query.in('dim_school.school_group', selectedGroups);
+            }
+            // If selectedGroups === 'all', no filter needed
+            // NOTE: If we ignore 'Trial School' globally, we must explicitly exclude it here too if 'all' is selected
+            if (selectedGroups === 'all') {
+                query = query.neq('dim_school.school_group', 'Trial School');
+            }
+
+            // Apply Teacher Filter
+            if (teacherVal !== 'all') {
+                // Must explicitly prevent SQL injection-like syntax errors in OR string, though SDK handles escaping usually.
+                // Syntax: .or('col1.eq.val,col2.eq.val')
+                query = query.or(`original_teacher_id.eq.${teacherVal},actual_teacher_id.eq.${teacherVal}`);
+            }
+
+            const { data, count, error } = await query;
+            
+            if(error) {
+                tbody.innerHTML = `<tr><td colspan="8" class="text-center text-red-500">Error: ${error.message}</td></tr>`;
+                return;
+            }
+
+            totalRecords = count;
+            tbody.innerHTML = '';
+            
+            if(data.length === 0) {
+                 tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-slate-400">No records found</td></tr>';
+                 return;
+            }
+
+            data.forEach(r => {
+                const sId = String(r.school_id).trim();
+                const school = metaData.schools[sId] || { name: 'Unknown', group: '' };
+                const orgT = metaData.users[String(r.original_teacher_id).trim()] || '-';
+                const actT = metaData.users[String(r.actual_teacher_id).trim()] || '-';
+                
+                // Status Color
+                let stBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] bg-slate-100 text-slate-600">${r.status || 'Normal'}</span>`;
+                if((r.status||'').includes('Cancel')) stBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] bg-red-100 text-red-600">${r.status}</span>`;
+                else if(r.status === 'Substituted' || (r.original_teacher_id !== r.actual_teacher_id && r.actual_teacher_id)) stBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] bg-green-100 text-green-600">Covered</span>`;
+
+                tbody.innerHTML += `
+                    <tr>
+                        <td class="whitespace-nowrap">${r.date}</td>
+                        <td class="whitespace-nowrap">${(r.start_time||'').substring(0,5)} - ${(r.end_time||'').substring(0,5)}</td>
+                        <td>${school.name}</td>
+                        <td>${school.group}</td>
+                        <td>${r.class_name}</td>
+                        <td>${orgT}</td>
+                        <td>${actT}</td>
+                        <td>${stBadge}</td>
+                    </tr>
+                `;
+            });
+
+            // Update Controls
+            const totalPages = Math.ceil(totalRecords / pageSize);
+            pageInfo.innerText = `Page ${currentPage + 1} of ${totalPages || 1} (${totalRecords} items)`;
+            
+            btnPrev.disabled = currentPage === 0;
+            btnNext.disabled = currentPage >= totalPages - 1;
+        }
+
+        function changePage(delta) {
+            currentPage += delta;
+            if(currentPage < 0) currentPage = 0;
+            loadTablePage();
+        }
+
+    </script>
+</body>
+</html>
