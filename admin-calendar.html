@@ -108,6 +108,41 @@
     .fc-popover-body::-webkit-scrollbar { width: 6px; }
     .fc-popover-body::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 3px; }
     .fc-popover-body::-webkit-scrollbar-track { background-color: transparent; }
+
+    /* Multi-day Split Visuals */
+    .multi-day-start {
+        border-top-right-radius: 0 !important;
+        border-bottom-right-radius: 0 !important;
+        border-right: 2px dashed rgba(0,0,0,0.2) !important; /* Visible dark perforation */
+        margin-right: 0 !important;
+        position: relative;
+    }
+    .multi-day-middle {
+        border-radius: 0 !important;
+        border-left: none !important;
+        border-right: 2px dashed rgba(0,0,0,0.2) !important; /* Visible dark perforation */
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        position: relative;
+    }
+    .multi-day-end {
+        border-top-left-radius: 0 !important;
+        border-bottom-left-radius: 0 !important;
+        border-left: none !important;
+        margin-left: 0 !important;
+        position: relative;
+    }
+    /* Add a tiny connector line visual on hover? Optional */
+    .multi-day-start:after, .multi-day-middle:after {
+        content: '';
+        position: absolute;
+        right: -4px;
+        top: 50%;
+        width: 6px;
+        height: 1px;
+        background: rgba(0,0,0,0.1);
+        z-index: 20;
+    }
   </style>
 </head>
 <body class="bg-gray-50 h-screen flex flex-col overflow-hidden">
@@ -153,6 +188,14 @@
                 <button onclick="setFilter('school')" id="btn-filter-school" class="px-3 py-1 rounded-md text-xs font-bold text-gray-500 hover:text-teal-600 transition">SCHOOL</button>
                 <button onclick="setFilter('teacher')" id="btn-filter-teacher" class="px-3 py-1 rounded-md text-xs font-bold text-gray-500 hover:text-indigo-600 transition">TEACHER</button>
             </div>
+
+            <!-- Email Check Mode -->
+            <button onclick="toggleEmailMode()" id="btn-email-mode" class="bg-gray-100 hover:bg-gray-200 text-gray-600 p-2 rounded-lg text-sm transition shadow-sm mr-2 flex items-center space-x-1" title="Toggle Email Check Mode">
+                <i class="far fa-envelope"></i> <span id="email-mode-text" class="hidden md:inline text-xs font-bold">MODE</span>
+            </button>
+            <button onclick="saveEmailStatus()" id="btn-email-save" class="hidden bg-green-500 hover:bg-green-600 text-white p-2 rounded-lg text-sm transition shadow-sm mr-2 animate-pulse" title="Save Email Status">
+                <i class="fas fa-save"></i> <span class="text-xs font-bold ml-1">SAVE</span>
+            </button>
 
             <button onclick="openAlarmModal()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 p-2 rounded-full w-10 h-10 flex items-center justify-center transition shadow-sm relative group" title="Notification Settings">
                 <i class="fas fa-bell"></i>
@@ -389,6 +432,8 @@
     let activeAlarms = [];
     let currentFilter = 'all'; // 'all', 'school', 'teacher'
     let globalRequests = []; // Store for day render
+    let isEmailMode = false;
+    let pendingEmailChanges = new Map(); // id -> boolean (true=checked/sent, false=unchecked)
     const db = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
 
     // --- Init ---
@@ -400,6 +445,10 @@
         calendar = new FullCalendar.Calendar(calendarEl, {
             initialView: 'dayGridMonth',
             themeSystem: 'standard',
+            eventOrder: function(a, b) {
+                // Stable sort by creation time to keep multi-day chunks aligned
+                return (a.extendedProps.orderKey || 0) - (b.extendedProps.orderKey || 0);
+            },
             headerToolbar: {
                 left: 'prev,next today',
                 center: 'title',
@@ -410,7 +459,13 @@
                 dayGridMonth: { dayMaxEvents: 6 },
                 dayGridWeek: { dayMaxEvents: false }
             },
-            eventClick: function(info) { openModal(info.event); },
+            eventClick: function(info) { 
+                if (isEmailMode) {
+                    handleEmailToggle(info.event);
+                } else {
+                    openModal(info.event); 
+                }
+            },
             events: fetchEvents,
             eventContent: renderEventContent,
             datesSet: function() { setTimeout(renderDailyStats, 100); }
@@ -619,7 +674,29 @@
         } else {
             icon = '<i class="fas fa-school mr-1 opacity-70"></i>';
         }
-        
+
+        // Email Mode Override
+        if (isEmailMode) {
+            // Updated for per-day tracking: Use event.id (composite) and dayEmailSent
+            const originalStatus = props.dayEmailSent === true;
+            const isChecked = pendingEmailChanges.has(arg.event.id) ? pendingEmailChanges.get(arg.event.id) : originalStatus;
+            
+            let badgeHtml = '';
+            if(props.badgeText && props.badgeText !== 'FULL') {
+                badgeHtml = `<span class="ml-1 text-[9px] px-1 rounded bg-white/40 font-bold whitespace-nowrap opacity-90">${props.badgeText}</span>`;
+            }
+
+            // Checkbox + Title Layout
+            return { html: `
+                <div class="flex items-center overflow-hidden w-full h-full px-1 space-x-1">
+                    <input type="checkbox" class="form-checkbox h-3 w-3 min-w-[12px] text-indigo-600 rounded border-gray-300 transition duration-150 ease-in-out pointer-events-none" ${isChecked ? 'checked' : ''}>
+                    <span class="truncate font-semibold text-xs flex-1 opacity-90">${icon} ${arg.event.title}</span>
+                    ${badgeHtml}
+                </div>
+            ` };
+        }
+
+        // Normal View
         let html = `<div class="flex items-center overflow-hidden w-full h-full px-1"><span class="truncate font-semibold text-xs flex-1">${icon} ${arg.event.title}</span>`;
         if(props.badgeText && props.badgeText !== 'FULL') {
             html += `<span class="ml-1 text-[9px] px-1 rounded bg-white/40 font-bold whitespace-nowrap opacity-90">${props.badgeText}</span>`;
@@ -634,8 +711,127 @@
              html += `<i class="fas fa-exclamation-circle text-orange-400 ml-1 text-xs bg-white rounded-full" title="Action Needed"></i>`;
         }
 
+        // Email Sent Icon (Small Envelope if NOT in email mode and sent)
+        if (props.email_sent || props.dayEmailSent) {
+            html += `<i class="fas fa-envelope text-indigo-500 ml-1 text-xs" title="Email Sent"></i>`;
+        }
+
         html += `</div>`;
         return { html: html };
+    }
+
+    // --- Email Tracking Logic ---
+    function toggleEmailMode() {
+        isEmailMode = !isEmailMode;
+        
+        const btn = document.getElementById('btn-email-mode');
+        const saveBtn = document.getElementById('btn-email-save');
+        const modeText = document.getElementById('email-mode-text');
+        
+        if (isEmailMode) {
+            btn.classList.remove('bg-gray-100', 'text-gray-600');
+            btn.classList.add('bg-indigo-100', 'text-indigo-700', 'ring-2', 'ring-indigo-300');
+            modeText.innerText = "EXIT";
+            calendar.render(); // Re-render to show checkboxes
+        } else {
+            // Cancel mode
+            pendingEmailChanges.clear();
+            btn.classList.add('bg-gray-100', 'text-gray-600');
+            btn.classList.remove('bg-indigo-100', 'text-indigo-700', 'ring-2', 'ring-indigo-300');
+            saveBtn.classList.add('hidden');
+            modeText.innerText = "MODE";
+            calendar.render(); // Re-render to show normal events
+        }
+    }
+
+    function handleEmailToggle(event) {
+        const p = event.extendedProps;
+        // Use event.id (Composite) for map key
+        const compositeId = event.id; 
+        const currentVal = pendingEmailChanges.has(compositeId) ? pendingEmailChanges.get(compositeId) : (p.dayEmailSent === true);
+        
+        const newVal = !currentVal;
+        pendingEmailChanges.set(compositeId, newVal);
+        
+        // Show/Hide Save Button
+        const saveBtn = document.getElementById('btn-email-save');
+        if (pendingEmailChanges.size > 0) saveBtn.classList.remove('hidden');
+        else saveBtn.classList.add('hidden');
+        
+        // Force re-render of this specific event
+        event.setExtendedProp('_forceRender', Math.random()); 
+    }
+
+    async function saveEmailStatus() {
+       if (pendingEmailChanges.size === 0) return;
+       
+       const btn = document.getElementById('btn-email-save');
+       // Loading State
+       const originalContent = '<i class="fas fa-save"></i> <span class="text-xs font-bold ml-1">SAVE</span>';
+       btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+       btn.disabled = true;
+       
+       try {
+           // We need to group updates by original ID because we are storing JSON
+           // Map<originalId, { date: boolean }>
+           const updatesById = new Map();
+           
+           for (const [compositeId, makeActive] of pendingEmailChanges) {
+               const [idStr, dateStr] = compositeId.split('_');
+               const id = parseInt(idStr);
+               
+               if (!updatesById.has(id)) updatesById.set(id, {});
+               updatesById.get(id)[dateStr] = makeActive;
+           }
+
+           // Process each row update
+           // fetch current JSONS first to merge? Or can we blindly merge?
+           // Supabase update with jsonb matches merges at top level? No, it replaces the column.
+           // So we MUST read-modify-write.
+           
+           const idsToUpdate = Array.from(updatesById.keys());
+           const { data: currentRows, error: fetchError } = await db.from('requests_log')
+               .select('id, daily_email_status')
+               .in('id', idsToUpdate);
+               
+           if(fetchError) throw fetchError;
+           
+           const updatePromises = currentRows.map(row => {
+               const newStatus = { ...(row.daily_email_status || {}) }; // Clone existing
+               const changes = updatesById.get(row.id);
+               
+               // Apply changes
+               Object.keys(changes).forEach(date => {
+                   if (changes[date]) newStatus[date] = true;
+                   else delete newStatus[date]; // Remove false/unchecked to keep clean? Or set to false? Let's use boolean.
+               });
+               
+               // If we want explicit false, set false. If we want concise, delete.
+               // Let's set to explicit boolean to be safe.
+               Object.keys(changes).forEach(date => {
+                    newStatus[date] = changes[date];
+               });
+
+               return db.from('requests_log').update({ daily_email_status: newStatus }).eq('id', row.id);
+           });
+           
+           await Promise.all(updatePromises);
+           
+           pendingEmailChanges.clear();
+           
+           // Restore button state before hiding
+           btn.innerHTML = originalContent;
+           btn.disabled = false;
+
+           toggleEmailMode(); // Exit mode and reset UI
+           calendar.refetchEvents(); // Get fresh data
+           
+       } catch (e) {
+           alert("Error saving: " + e.message + "\n\n(Make sure 'daily_email_status' column exists: alter table requests_log add column daily_email_status jsonb default '{}'::jsonb;)");
+           btn.innerHTML = originalContent; // Restore text on error
+           btn.disabled = false;
+       }
+       // If success, toggleEmailMode handles the UI reset
     }
 
     async function loadTeachers() {
@@ -669,12 +865,16 @@
             if (error) throw error;
 
             updateStats(data);
-            const events = data.map(r => {
+            
+            // Transform Data into Events (Split Multi-day)
+            const events = [];
+            
+            data.forEach(r => {
                 const isLeave = r.request_category === 'Teacher' || r.school_code === 'N/A';
                 
                 // FILTER LOGIC
-                if (currentFilter === 'school' && isLeave) return null;
-                if (currentFilter === 'teacher' && !isLeave) return null;
+                if (currentFilter === 'school' && isLeave) return;
+                if (currentFilter === 'teacher' && !isLeave) return;
                 
                 const isPending = r.status === 'Pending';
                 
@@ -682,18 +882,14 @@
                 
                 // SIMPLIFIED COLOR SCHEME
                 if (r.status === 'Rejected' || r.status === 'Cancelled') { 
-                    // Dimmed / Gray
                     bg = '#f3f4f6'; border = '#e5e7eb'; text = '#9ca3af'; 
                 } else if (isLeave) {
-                    // Teacher Leave = Indigo Theme
                     bg = '#e0e7ff'; border = '#c7d2fe'; text = '#3730a3';
                 } else {
-                    // School Holiday = Teal Theme
-                    bg = '#ccfbf1'; border = '#99f6e4'; text = '#115e59';
+                    bg = '#ccfbf1'; border = '#99f6e4'; text = '#115e59'; 
                 }
 
                 let classNames = [];
-                // STARTING STATE: If Pending, assume "Pulse" until proven innocent
                 if(isPending) classNames.push('status-pulse');
 
                 let displayName = r.user_name || "Unknown";
@@ -714,15 +910,64 @@
                      if (times.length > 0) badge = (times.length > 1) ? `${times[0]}..` : times[0];
                 }
 
-                return {
-                    id: r.id,
-                    title: displayName,
-                    start: r.start_date,
-                    end: r.end_date ? new Date(new Date(r.end_date).getTime() + 86400000).toISOString().split('T')[0] : r.start_date,
-                    backgroundColor: bg, borderColor: border, textColor: text, classNames: classNames,
-                    extendedProps: { ...r, mapped_name: displayName, badgeText: badge, leave_type: r.type, isLeave: isLeave }
-                };
-            }).filter(Boolean); // Filter nulls
+                // SPLIT DAYS LOGIC
+                let loopDate = new Date(r.start_date);
+                const endDate = new Date(r.end_date || r.start_date);
+                
+                // Multi-day calculation
+                const diffTime = Math.abs(endDate - loopDate);
+                const totalDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+                let dayCounter = 1;
+
+                // Sort Order: Use timestamp (newer on top or bottom). DB returns DESC.
+                // We want consistent order across days.
+                const orderKey = new Date(r.created_at).getTime();
+                
+                // Safety limiter for infinite loops
+                let limit = 0;
+                while (loopDate <= endDate && limit < 365) {
+                    const dStr = loopDate.toISOString().split('T')[0];
+                    const compositeId = `${r.id}_${dStr}`;
+                    
+                    // Multi-day Visual Chain Logic
+                    let chainClass = '';
+                    if (totalDays > 1) {
+                        if (dayCounter === 1) chainClass = 'multi-day-start';
+                        else if (dayCounter === totalDays) chainClass = 'multi-day-end';
+                        else chainClass = 'multi-day-middle';
+                    }
+
+                    // Determine Email Status for this specific day
+                    // Check new JSON column 'daily_email_status' OR fallback to legacy 'email_sent'
+                    const statusJson = r.daily_email_status || {};
+                    const isDaySent = statusJson[dStr] === true || (r.email_sent === true && statusJson[dStr] === undefined);
+
+                    events.push({
+                        id: compositeId,
+                        title: displayName,
+                        start: dStr,
+                        allDay: true,
+                        backgroundColor: bg, borderColor: border, textColor: text, 
+                        classNames: [...classNames, chainClass], 
+                        extendedProps: { 
+                            ...r, 
+                            mapped_name: displayName, 
+                            badgeText: badge, 
+                            leave_type: r.type, 
+                            isLeave: isLeave,
+                            originalId: r.id,      // Keep reference to DB ID
+                            eventDate: dStr,       // Explicit Date
+                            dayEmailSent: isDaySent, // Computed Day Status
+                            orderKey: orderKey     // Keep them aligned
+                        }
+                    });
+
+                    loopDate.setDate(loopDate.getDate() + 1);
+                    dayCounter++;
+                    limit++;
+                }
+            });
+            
             if(successCallback) successCallback(events);
             
             // Trigger coverage check for visible events
@@ -832,7 +1077,7 @@
 
     async function openModal(event) {
         const p = event.extendedProps;
-        currentEventId = p.id;
+        currentEventId = p.originalId || p.id;
 
         // RESET UI STATE (Ensure we start in View Mode)
         document.getElementById('modalDetailView').classList.remove('hidden');
@@ -1001,6 +1246,7 @@
         // Headers Update
         const thead = container.querySelector('thead tr');
         if(thead) thead.innerHTML = `
+            <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
             <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-24">Time</th>
             <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Class</th>
             <th scope="col" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Teacher / Status</th>
@@ -1022,7 +1268,7 @@
             loading.classList.add('hidden');
             
             if(!sessions || sessions.length === 0) {
-                 tbody.innerHTML = `<tr><td class="px-3 py-2 text-sm font-bold text-gray-700">${raw.startTime} - ${raw.endTime}</td><td class="px-3 py-2 text-sm text-gray-500 italic" colspan="3">Partial Day - No classes found in DB for this range.</td></tr>`;
+                 tbody.innerHTML = `<tr><td class="px-3 py-2 text-sm text-gray-500 italic" colspan="5">Partial Day - No classes found in DB for this range.</td></tr>`;
             } else {
                  let coveredCount = 0;
                  let totalCount = sessions.length;
@@ -1051,6 +1297,7 @@
                     if(isCovered) coveredCount++;
 
                     return `<tr class="hover:bg-gray-50 border-b">
+                        <td class="px-3 py-2 text-sm text-gray-700 font-mono whitespace-nowrap">${s.date}</td>
                         <td class="px-3 py-2 text-sm font-bold text-blue-600 whitespace-nowrap">${(s.start_time||'').substring(0,5)} - ${(s.end_time||'').substring(0,5)}</td>
                         <td class="px-3 py-2 text-sm text-gray-700">${s.class_name || '-'}</td>
                         <td class="px-3 py-2 text-sm text-gray-600">
@@ -1102,6 +1349,7 @@
                 if(s) {
                     const currentTeacherId = String(s.actual_teacher_id);
                     const originalTeacherId = String(p.teacher_id);
+                    const teacherName = teacherMap.get(currentTeacherId) || s.actual_teacher_id || "-";
                     const isCancelled = (s.status || '').includes('Cancelled');
                     
                     let statusHtml = `<span class="px-2 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700">Active</span>`;
@@ -1124,6 +1372,7 @@
                     if(isCovered) coveredCount++;
 
                     return `<tr class="hover:bg-gray-50 border-b">
+                        <td class="px-3 py-2 text-sm text-gray-700 font-mono whitespace-nowrap">${s.date}</td>
                         <td class="px-3 py-2 text-sm font-bold text-blue-600 whitespace-nowrap">${(s.start_time||'').substring(0,5)} - ${(s.end_time||'').substring(0,5)}</td>
                         <td class="px-3 py-2 text-sm text-gray-700">${s.class_name || '-'}</td>
                         <td class="px-3 py-2 text-sm text-gray-600">
@@ -1135,7 +1384,7 @@
                         </td>
                     </tr>`;
                 }
-                return `<tr class="bg-red-50 border-b"><td class="px-3 py-2 text-sm font-bold text-gray-400 font-mono">${item.time}</td><td class="px-3 py-2 text-sm text-gray-400 italic" colspan="3">Details not found</td></tr>`;
+                return `<tr class="bg-red-50 border-b"><td colspan="5" class="px-3 py-2 text-sm text-gray-400 italic">Session ID ${item.id} not found in database</td></tr>`;
             }).join('');
             
             // Show Summary if DB Record Exists
@@ -1152,7 +1401,7 @@
             }
 
         } else {
-             container.classList.remove('hidden'); tbody.innerHTML = `<tr><td colspan="4" class="px-3 py-4 text-center text-sm text-gray-500 italic">Full Day Holiday</td></tr>`;
+             container.classList.remove('hidden'); tbody.innerHTML = `<tr><td colspan="5" class="px-3 py-4 text-center text-sm text-gray-500 italic">Full Day Holiday</td></tr>`;
         }
 
         // --- Status Dropdown ---
@@ -1245,10 +1494,13 @@
     // --- Bulk Coverage Check ---
     async function checkCoverageForView() {
         const events = calendar.getEvents();
-        // Target: Not Rejected/Cancelled, No status yet
+        
+        // Target: Not Rejected/Cancelled (Pending or already rendered but might need status update)
+        // We filter for Pending items specifically to update their 'pulse' status, 
+        // or items without coverage status calculated yet.
         const targets = events.filter(e => {
             const p = e.extendedProps;
-            return p.status !== 'Rejected' && p.status !== 'Cancelled' && !p.coverageStatus;
+            return p.status !== 'Rejected' && p.status !== 'Cancelled' && (p.status === 'Pending' || !p.coverageStatus);
         });
 
         if(targets.length === 0) return;
@@ -1256,6 +1508,7 @@
         // Process in parallel
         await Promise.all(targets.map(async (e) => {
             const p = e.extendedProps;
+            const queryDate = e.startStr; // YYYY-MM-DD (Per-day check)
             const raw = parseSessions(p.affected_sessions);
             let rows = [];
 
@@ -1266,47 +1519,50 @@
                         const { data } = await db.from('fact_daily_session')
                             .select('status, actual_teacher_id')
                             .eq('original_teacher_id', p.teacher_id)
-                            .eq('date', p.start_date)
+                            .eq('date', queryDate)
                             .gte('start_time', raw.startTime)
                             .lte('end_time', raw.endTime);
                         rows = data || [];
                     } else if (Array.isArray(raw) && raw.length > 0) {
-                        // ID List
+                        // ID List (Specific Sessions)
+                        // Filter by IDs found in the list AND the specific date of this event
                         const ids = raw.map(s => (typeof s==='string' && s.includes('_')) ? s : null).filter(Boolean);
                         if(ids.length > 0) {
                             const { data } = await db.from('fact_daily_session')
                                 .select('status, actual_teacher_id')
-                                .in('session_id', ids);
+                                .in('session_id', ids)
+                                .eq('date', queryDate); 
                             rows = data || [];
                         }
-                    } else return; // Full Day (maybe check all classes?)
-
+                    } else {
+                        // Generic Full Day check (If no sessions specified)
+                         const { data } = await db.from('fact_daily_session')
+                            .select('status, actual_teacher_id')
+                            .eq('original_teacher_id', p.teacher_id)
+                            .eq('date', queryDate);
+                         rows = data || [];
+                    }
+                    
                     if(rows.length > 0) {
                         const total = rows.length;
                         let cancelled = rows.filter(r => (r.status || '').includes('Cancelled')).length;
-                        // Count covered (substitution)
                         let covered = rows.filter(r => !(r.status || '').includes('Cancelled') && String(r.actual_teacher_id) !== String(p.teacher_id) && String(r.actual_teacher_id) !== 'undefined').length;
                         
-                        if (cancelled === total) e.setExtendedProp('coverageStatus', 'all_cancelled');
-                        else if ((cancelled + covered) === total) e.setExtendedProp('coverageStatus', 'all_covered');
-                        else if (cancelled > 0 || covered > 0) e.setExtendedProp('coverageStatus', 'partial');
-                        else e.setExtendedProp('coverageStatus', 'none'); // Explicit none
+                        // Status Determination
+                        let status = 'none';
+                        if (cancelled === total) status = 'all_cancelled';
+                        else if ((cancelled + covered) === total) status = 'all_covered'; 
+                        else if (cancelled > 0 || covered > 0) status = 'partial';
+                        
+                        e.setExtendedProp('coverageStatus', status);
 
-                        // --- AUTO-UPDATE VISUALS FOR PENDING ---
+                        // Visual Update for Pending Tickets (Stop blinking if this day is fully resolved)
                         if(p.status === 'Pending') {
-                            const isResolved = (cancelled + covered) === total;
+                            const isResolved = ((cancelled + covered) === total);
                             if(isResolved) {
-                                // COMPLETE -> Stop Pulse
-                                e.setProp('classNames', []);
-
-                                // [AUTO-APPROVE] Update DB to save manual click
-                                console.log(`✨ Auto-Approving Ticket ${p.id} (All classes resolved)`);
-                                db.from('requests_log').update({ status: 'Approved' }).eq('id', p.id).then(({error}) => {
-                                    if(!error) e.setExtendedProp('status', 'Approved');
-                                });
+                                e.setProp('classNames', []); // Resolved -> Stop Pulse -> Green Check (rendered via coverageStatus)
                             } else {
-                                // ACTION NEEDED -> Keep Pulse
-                                e.setProp('classNames', ['status-pulse']);
+                                e.setProp('classNames', ['status-pulse']); // Not Resolved -> Keep Pulse
                             }
                         }
                     }
@@ -1314,7 +1570,6 @@
                 } else { // School Logic
                      const schoolId = schoolCodeMap.get(p.school_code);
                      if(schoolId) {
-                         // [FIX] Smart Logic: Handle Partial Tickets correctly
                          let data = [];
                          let isSpecific = false;
                          const raw = parseSessions(p.affected_sessions);
@@ -1326,18 +1581,18 @@
                                  isSpecific = true;
                                  const { data: specificData } = await db.from('fact_daily_session')
                                     .select('status')
-                                    .in('session_id', ids);
+                                    .in('session_id', ids)
+                                    .eq('date', queryDate);
                                  data = specificData || [];
                              }
                          }
 
-                         // 2. Fallback to Full Day if not specific
+                         // 2. Fallback to Full Day query for this specific date
                          if (!isSpecific) {
                              const { data: fullData } = await db.from('fact_daily_session')
                                  .select('status')
                                  .eq('school_id', schoolId)
-                                 .gte('date', p.start_date)
-                                 .lte('date', p.end_date || p.start_date);
+                                 .eq('date', queryDate);
                              data = fullData || [];
                          }
                          
@@ -1348,26 +1603,14 @@
                              if (cancelled === total) e.setExtendedProp('coverageStatus', 'all_cancelled'); 
                              else e.setExtendedProp('coverageStatus', 'partial');
                              
-                             // --- AUTO-UPDATE VISUALS FOR PENDING (SCHOOL) ---
+                             // Visual Update for Pending Tickets
                              if(p.status === 'Pending') {
                                  if (cancelled === total) {
-                                     // COMPLETE
-                                     e.setProp('classNames', []);
-                                     
-                                     // [AUTO-APPROVE] Update DB
-                                     console.log(`✨ Auto-Approving Ticket ${p.id} (All classes cancelled)`);
-                                     db.from('requests_log').update({ status: 'Approved' }).eq('id', p.id).then(({error}) => {
-                                         if(!error) e.setExtendedProp('status', 'Approved');
-                                     });
+                                     e.setProp('classNames', []); // Stop pulsing
                                  } else {
-                                     // ACTION NEEDED
                                      e.setProp('classNames', ['status-pulse']);
                                  }
                              }
-                         } else {
-                             // E.g. No classes found -> Maybe already handled or weekend? 
-                             // Treat as neutral or covered?
-                             // If specific, maybe IDs are wrong or deleted?
                          }
                      }
                 }
