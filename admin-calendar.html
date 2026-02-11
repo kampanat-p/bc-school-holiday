@@ -434,6 +434,7 @@
     let globalRequests = []; // Store for day render
     let isEmailMode = false;
     let pendingEmailChanges = new Map(); // id -> boolean (true=checked/sent, false=unchecked)
+    let currentCoverageRunId = 0; // For cancelling old coverage checks
     const db = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
 
     // --- Init ---
@@ -446,8 +447,10 @@
             initialView: 'dayGridMonth',
             themeSystem: 'standard',
             eventOrder: function(a, b) {
-                // Stable sort by creation time to keep multi-day chunks aligned
-                return (a.extendedProps.orderKey || 0) - (b.extendedProps.orderKey || 0);
+                // Alphabetical sort by School Code (A_) or Teacher Name (B_) to keep chunks aligned
+                const keyA = a.extendedProps.orderKey || "";
+                const keyB = b.extendedProps.orderKey || "";
+                return keyA.localeCompare(keyB);
             },
             headerToolbar: {
                 left: 'prev,next today',
@@ -703,10 +706,26 @@
         }
         
         // Coverage Status Icons
-        if (props.coverageStatus === 'all_cancelled' || props.coverageStatus === 'all_covered' || props.coverageStatus === 'all_resolved') {
+        // OPTIMISTIC: Default to Green Check if Approved (likely resolved or waiting check).
+        // If coverage check finds issues later, it will update to Orange immediately.
+        let showGreen = false;
+        let showOrange = false;
+        
+        if (props.coverageStatus) {
+            // Calculated status exists
+            if (props.coverageStatus.startsWith('all_')) showGreen = true;
+            else if (props.coverageStatus === 'partial') showOrange = true;
+        } else {
+             // Initial Load / Waiting for Calculation
+             if (props.status === 'Approved') showGreen = true; 
+             // If Pending, show nothing (it pulses) or we could show orange? 
+             // Currently sticking to 'pulse' for Pending.
+        }
+
+        if (showGreen) {
              // GREEN CHECK = Resolved (Covered or Cancelled)
              html += `<i class="fas fa-check-circle text-green-500 ml-1 text-xs bg-white rounded-full" title="Resolved"></i>`;
-        } else if (props.coverageStatus === 'partial') {
+        } else if (showOrange) {
              // ORANGE ALERT = Action Needed
              html += `<i class="fas fa-exclamation-circle text-orange-400 ml-1 text-xs bg-white rounded-full" title="Action Needed"></i>`;
         }
@@ -865,7 +884,26 @@
             if (error) throw error;
 
             updateStats(data);
+
+            // PRE-FETCH: Get Class Names for Badge
+            const allSessionIds = new Set();
+            data.forEach(r => {
+                const s = parseSessions(r.affected_sessions);
+                if(Array.isArray(s)) s.forEach(id => allSessionIds.add(id));
+            });
             
+            let sessionNameMap = new Map();
+            if(allSessionIds.size > 0) {
+                // Batch query up to 1000 IDs? If huge, Supabase might complain, but for now assuming <1000 active tickets visible
+                // Limit to recent/relevant if needed, but let's try direct.
+                const ids = Array.from(allSessionIds).slice(0, 500); // Safety Cap
+                const { data: sData } = await db.from('fact_daily_session')
+                    .select('session_id, class_name')
+                    .in('session_id', ids);
+                    
+                if(sData) sData.forEach(row => sessionNameMap.set(row.session_id, row.class_name));
+            }
+
             // Transform Data into Events (Split Multi-day)
             const events = [];
             
@@ -903,12 +941,28 @@
                 const sessions = parseSessions(r.affected_sessions);
                 if (typeof sessions === 'object' && sessions.startTime) badge = `${sessions.startTime.substring(0,5)}-${sessions.endTime.substring(0,5)}`;
                 else if (Array.isArray(sessions) && sessions.length > 0) {
-                     const times = sessions.map(s => {
-                        const parts = s.split('_');
-                        return parts.length >= 3 ? parts[2].substring(0,5) : null;
-                     }).filter(Boolean).sort();
-                     if (times.length > 0) badge = (times.length > 1) ? `${times[0]}..` : times[0];
+                     // badge = sessions.length > 1 ? "MULT" : "1 SES";
+                     const names = sessions.map(id => sessionNameMap.get(id)).filter(Boolean);
+                     if(names.length > 0) {
+                        if(names.length <= 2) badge = names.join(', ');
+                        else badge = `${names[0]}, ${names[1]} +${names.length-2}`;
+                     } else {
+                        badge = sessions.length > 1 ? `${sessions.length} SES` : "1 SES";
+                     }
                 }
+
+                // We want all days of the same request to align, so base it on immutable request properties.
+                let sortPrefix = "";
+                if (!isLeave && r.school_code) {
+                    sortPrefix = "A_" + r.school_code; // Schools first, sorted by code
+                } else if (isLeave && r.school_code && r.school_code !== 'N/A') {
+                    sortPrefix = "A_" + r.school_code;
+                } else {
+                    sortPrefix = "B_" + (r.user_name || "Unknown"); // Teachers after, sorted by Name
+                }
+                
+                // Append created_at to break ties consistently
+                const orderKey = sortPrefix + "_" + new Date(r.created_at).getTime(); 
 
                 // SPLIT DAYS LOGIC
                 let loopDate = new Date(r.start_date);
@@ -921,7 +975,7 @@
 
                 // Sort Order: Use timestamp (newer on top or bottom). DB returns DESC.
                 // We want consistent order across days.
-                const orderKey = new Date(r.created_at).getTime();
+                // const orderKey = ... handled above
                 
                 // Safety limiter for infinite loops
                 let limit = 0;
@@ -1098,7 +1152,18 @@
 
         document.getElementById('modalTypeBadge').innerText = p.isLeave ? (p.type || "Teacher Leave") : "School Holiday";
         document.getElementById('modalTitle').innerText = p.mapped_name || p.title; 
-        document.getElementById('modalSubtitle').innerText = "Requested by: " + (p.user_name || "Guest");
+        
+        // Subtitle & Last Edited
+        let sub = "Requested by: " + (p.user_name || "Guest");
+        if(p.last_edited_by) {
+            // If we have date info for the edit
+            // Try to find it in change_log or just show name
+            // Assuming change_log is array of objects { editor, date, note }
+            // Finds the last one that matches editor name? Or just last one?
+            // Simple approach: Just Name
+            sub += `  •  Last Update: ${p.last_edited_by}`;
+        }
+        document.getElementById('modalSubtitle').innerText = sub;
         
         let dateText = p.start_date; if(p.end_date && p.end_date !== p.start_date) dateText += ` ➔ ${p.end_date}`;
         document.getElementById('modalDates').innerText = dateText;
@@ -1491,13 +1556,15 @@
         }
     }
 
-    // --- Bulk Coverage Check ---
+    // --- Bulk Coverage Check (Optimized) ---
     async function checkCoverageForView() {
+        // Increment run ID to invalidate previous runs
+        currentCoverageRunId++;
+        const thisRunId = currentCoverageRunId;
+
         const events = calendar.getEvents();
         
         // Target: Not Rejected/Cancelled (Pending or already rendered but might need status update)
-        // We filter for Pending items specifically to update their 'pulse' status, 
-        // or items without coverage status calculated yet.
         const targets = events.filter(e => {
             const p = e.extendedProps;
             return p.status !== 'Rejected' && p.status !== 'Cancelled' && (p.status === 'Pending' || !p.coverageStatus);
@@ -1505,117 +1572,98 @@
 
         if(targets.length === 0) return;
 
-        // Process in parallel
-        await Promise.all(targets.map(async (e) => {
-            const p = e.extendedProps;
-            const queryDate = e.startStr; // YYYY-MM-DD (Per-day check)
-            const raw = parseSessions(p.affected_sessions);
-            let rows = [];
+        // BATCH PROCESSING: Process in chunks
+        const CHUNK_SIZE = 5; 
+        
+        for (let i = 0; i < targets.length; i += CHUNK_SIZE) {
+            if (currentCoverageRunId !== thisRunId) return;
 
-            try {
-                if (p.isLeave) { // Teacher Logic
-                    if (typeof raw === 'object' && raw.startTime && p.teacher_id) {
-                        // Partial Day
-                        const { data } = await db.from('fact_daily_session')
-                            .select('status, actual_teacher_id')
-                            .eq('original_teacher_id', p.teacher_id)
-                            .eq('date', queryDate)
-                            .gte('start_time', raw.startTime)
-                            .lte('end_time', raw.endTime);
-                        rows = data || [];
-                    } else if (Array.isArray(raw) && raw.length > 0) {
-                        // ID List (Specific Sessions)
-                        // Filter by IDs found in the list AND the specific date of this event
-                        const ids = raw.map(s => (typeof s==='string' && s.includes('_')) ? s : null).filter(Boolean);
-                        if(ids.length > 0) {
+            const chunk = targets.slice(i, i + CHUNK_SIZE);
+            
+            await Promise.all(chunk.map(async (e) => {
+                // Double check existence (view might have changed)
+                if (!calendar.getEventById(e.id)) return;
+
+                const p = e.extendedProps;
+                const queryDate = e.startStr; // YYYY-MM-DD
+                const raw = parseSessions(p.affected_sessions);
+                let rows = [];
+
+                try {
+                    if (p.isLeave) { // Teacher Logic
+                        if (typeof raw === 'object' && raw.startTime && p.teacher_id) {
+                            // Partial Day
                             const { data } = await db.from('fact_daily_session')
                                 .select('status, actual_teacher_id')
-                                .in('session_id', ids)
-                                .eq('date', queryDate); 
+                                .eq('original_teacher_id', p.teacher_id)
+                                .eq('date', queryDate)
+                                .gte('start_time', raw.startTime)
+                                .lte('end_time', raw.endTime);
                             rows = data || [];
+                        } else if (Array.isArray(raw) && raw.length > 0) {
+                            // ID List
+                            const ids = raw.map(s => (typeof s==='string' && s.includes('_')) ? s : null).filter(Boolean);
+                            if(ids.length > 0) {
+                                const { data } = await db.from('fact_daily_session')
+                                    .select('status, actual_teacher_id')
+                                    .in('session_id', ids)
+                                    .eq('date', queryDate); 
+                                rows = data || [];
+                            }
+                        } else {
+                            // Generic Full Day check
+                             const { data } = await db.from('fact_daily_session')
+                                .select('status, actual_teacher_id')
+                                .eq('original_teacher_id', p.teacher_id)
+                                .eq('date', queryDate);
+                             rows = data || [];
                         }
-                    } else {
-                        // Generic Full Day check (If no sessions specified)
-                         const { data } = await db.from('fact_daily_session')
-                            .select('status, actual_teacher_id')
-                            .eq('original_teacher_id', p.teacher_id)
-                            .eq('date', queryDate);
-                         rows = data || [];
-                    }
-                    
-                    if(rows.length > 0) {
-                        const total = rows.length;
-                        let cancelled = rows.filter(r => (r.status || '').includes('Cancelled')).length;
-                        let covered = rows.filter(r => !(r.status || '').includes('Cancelled') && String(r.actual_teacher_id) !== String(p.teacher_id) && String(r.actual_teacher_id) !== 'undefined').length;
                         
-                        // Status Determination
-                        let status = 'none';
-                        if (cancelled === total) status = 'all_cancelled';
-                        else if ((cancelled + covered) === total) status = 'all_covered'; 
-                        else if (cancelled > 0 || covered > 0) status = 'partial';
-                        
-                        e.setExtendedProp('coverageStatus', status);
-
-                        // Visual Update for Pending Tickets (Stop blinking if this day is fully resolved)
-                        if(p.status === 'Pending') {
-                            const isResolved = ((cancelled + covered) === total);
-                            if(isResolved) {
-                                e.setProp('classNames', []); // Resolved -> Stop Pulse -> Green Check (rendered via coverageStatus)
-                            } else {
-                                e.setProp('classNames', ['status-pulse']); // Not Resolved -> Keep Pulse
+                        if(rows.length > 0) {
+                            const total = rows.length;
+                            let cancelled = rows.filter(r => (r.status || '').includes('Cancelled')).length;
+                            let covered = rows.filter(r => !(r.status || '').includes('Cancelled') && String(r.actual_teacher_id) !== String(p.teacher_id) && String(r.actual_teacher_id) !== 'undefined').length;
+                            
+                            let status = 'partial';
+                            if (cancelled === total) status = 'all_cancelled';
+                            else if (covered === total) status = 'all_covered';
+                            else if (cancelled + covered === total) status = 'all_resolved';
+                            
+                            e.setExtendedProp('coverageStatus', status);
+                            
+                            // Visual Update (Stop Blinking if Resolved)
+                            if (status.includes('all_')) {
+                                e.setProp('classNames', e.classNames.filter(c => c !== 'status-pulse'));
                             }
                         }
-                    }
-
-                } else { // School Logic
-                     const schoolId = schoolCodeMap.get(p.school_code);
-                     if(schoolId) {
-                         let data = [];
-                         let isSpecific = false;
-                         const raw = parseSessions(p.affected_sessions);
-
-                         // 1. Try Specific IDs first
-                         if (Array.isArray(raw) && raw.length > 0) {
-                             const ids = raw.filter(x => typeof x === 'string' && x.length > 5);
-                             if(ids.length > 0) {
-                                 isSpecific = true;
-                                 const { data: specificData } = await db.from('fact_daily_session')
-                                    .select('status')
-                                    .in('session_id', ids)
-                                    .eq('date', queryDate);
-                                 data = specificData || [];
-                             }
-                         }
-
-                         // 2. Fallback to Full Day query for this specific date
-                         if (!isSpecific) {
+                    } 
+                    // School Holidays logic
+                    else if (!p.isLeave && p.school_code) {
+                         const schoolId = schoolCodeMap.get(p.school_code);
+                         if(schoolId) {
                              const { data: fullData } = await db.from('fact_daily_session')
                                  .select('status')
                                  .eq('school_id', schoolId)
                                  .eq('date', queryDate);
-                             data = fullData || [];
-                         }
-                         
-                         if(data && data.length > 0) {
-                             const total = data.length;
-                             const cancelled = data.filter(s => (s.status || '').includes('Cancelled')).length;
-                             
-                             if (cancelled === total) e.setExtendedProp('coverageStatus', 'all_cancelled'); 
-                             else e.setExtendedProp('coverageStatus', 'partial');
-                             
-                             // Visual Update for Pending Tickets
-                             if(p.status === 'Pending') {
-                                 if (cancelled === total) {
-                                     e.setProp('classNames', []); // Stop pulsing
-                                 } else {
-                                     e.setProp('classNames', ['status-pulse']);
-                                 }
+                                 
+                             if(fullData && fullData.length > 0) {
+                                  const total = fullData.length;
+                                  const cancelled = fullData.filter(s => (s.status || '').includes('Cancelled')).length;
+                                  
+                                  if (cancelled === total) {
+                                      e.setExtendedProp('coverageStatus', 'all_cancelled');
+                                      e.setProp('classNames', e.classNames.filter(c => c !== 'status-pulse'));
+                                  }
                              }
                          }
-                     }
-                }
-            } catch(err) { console.warn("Coverage check fail:", err); }
-        }));
+                    }
+
+                } catch(err) { console.warn("Coverage check fail:", err); }
+            }));
+
+            // Breathe
+            await new Promise(r => setTimeout(r, 100));
+        }
     }
 
     // --- EDIT MODE LOGIC ---
@@ -1630,8 +1678,13 @@
 
         if (editView.classList.contains('hidden')) {
             // ENTER EDIT MODE
-            const event = calendar.getEventById(currentEventId);
-            if(!event) return;
+            // Fix: Retrieve event by looking up extendedProps.originalId because event.id is composite
+            const event = calendar.getEvents().find(e => e.extendedProps.originalId == currentEventId);
+            
+            if(!event) {
+                alert("Could not load event data for editing. Please refresh.");
+                return;
+            }
             const p = event.extendedProps;
             currentEditEvent = p;
 
@@ -1790,17 +1843,19 @@
                 end_date: end,
                 reason: reason,
                 affected_sessions: selectedIds,
-                change_log: newLog
+                change_log: newLog,
+                last_edited_by: editorName // Store signature in dedicated column
             };
 
             const { error } = await db.from('requests_log').update(updatePayload).eq('id', currentEditEvent.id);
             if(error) {
-                // Fallback: If 'change_log' column missing, try saving without it
-                if(error.message && error.message.includes('change_log')) {
-                    console.warn("change_log column missing, saving basic data only.");
+                // Fallback: If 'change_log' or 'last_edited_by' column missing, try saving basic data only
+                if(error.message && (error.message.includes('change_log') || error.message.includes('last_edited_by'))) {
+                    console.warn("Optional columns missing, saving basic data only.");
                     delete updatePayload.change_log;
-                    const { error: retryError } = await db.from('requests_log').update(updatePayload).eq('id', currentEditEvent.id);
-                    if(retryError) throw retryError;
+                    delete updatePayload.last_edited_by;
+                    const { error: retryErr } = await db.from('requests_log').update(updatePayload).eq('id', currentEditEvent.id);
+                    if(retryErr) throw retryErr;
                 } else throw error;
             }
 
