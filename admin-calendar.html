@@ -885,23 +885,29 @@
 
             updateStats(data);
 
-            // PRE-FETCH: Get Class Names for Badge
+            // PRE-FETCH: Get Class Names & Status for Badge + Coverage
             const allSessionIds = new Set();
             data.forEach(r => {
                 const s = parseSessions(r.affected_sessions);
                 if(Array.isArray(s)) s.forEach(id => allSessionIds.add(id));
             });
             
-            let sessionNameMap = new Map();
+            let sessionDataMap = new Map(); // ID -> Row Object
+            let sessionNameMap = new Map(); // Keep for badge backward compat
+            
             if(allSessionIds.size > 0) {
-                // Batch query up to 1000 IDs? If huge, Supabase might complain, but for now assuming <1000 active tickets visible
-                // Limit to recent/relevant if needed, but let's try direct.
-                const ids = Array.from(allSessionIds).slice(0, 500); // Safety Cap
+                // Batch query up to 2000 IDs to ensure we get most
+                const ids = Array.from(allSessionIds).slice(0, 2000); 
+                
+                // Fetch extended info for Coverage calculation
                 const { data: sData } = await db.from('fact_daily_session')
-                    .select('session_id, class_name')
+                    .select('session_id, class_name, status, actual_teacher_id, original_teacher_id, date')
                     .in('session_id', ids);
                     
-                if(sData) sData.forEach(row => sessionNameMap.set(row.session_id, row.class_name));
+                if(sData) sData.forEach(row => {
+                    sessionDataMap.set(row.session_id, row);
+                    sessionNameMap.set(row.session_id, row.class_name);
+                });
             }
 
             // Transform Data into Events (Split Multi-day)
@@ -973,10 +979,6 @@
                 const totalDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
                 let dayCounter = 1;
 
-                // Sort Order: Use timestamp (newer on top or bottom). DB returns DESC.
-                // We want consistent order across days.
-                // const orderKey = ... handled above
-                
                 // Safety limiter for infinite loops
                 let limit = 0;
                 while (loopDate <= endDate && limit < 365) {
@@ -996,6 +998,34 @@
                     const statusJson = r.daily_email_status || {};
                     const isDaySent = statusJson[dStr] === true || (r.email_sent === true && statusJson[dStr] === undefined);
 
+                    // --- INLINE COVERAGE CHECK (Optimization) ---
+                    let coverageStatus = null;
+                    if (r.status !== 'Rejected' && r.status !== 'Cancelled') {
+                        // Only applicable if we have session IDs and data pre-fetched
+                        if(Array.isArray(sessions) && sessions.length > 0) {
+                             const daySessions = sessions
+                                 .map(id => sessionDataMap.get(id))
+                                 .filter(row => row && row.date === dStr); // Filter by date of this event segment
+                             
+                             if(daySessions.length > 0) {
+                                  // Found sessions for this day! Calculate immediately.
+                                  const total = daySessions.length;
+                                  const cancelled = daySessions.filter(x => (x.status || '').includes('Cancelled')).length;
+                                  const covered = daySessions.filter(x => !(x.status || '').includes('Cancelled') && String(x.actual_teacher_id) !== String(r.teacher_id) && String(x.actual_teacher_id) !== 'undefined').length;
+                
+                                  if (cancelled === total) coverageStatus = 'all_cancelled';
+                                  else if (covered === total) coverageStatus = 'all_covered';
+                                  else if (cancelled + covered === total) coverageStatus = 'all_resolved';
+                                  else if (cancelled + covered > 0) coverageStatus = 'partial';
+                                  
+                                  // If fully resolved/cancelled, remove pulse immediately
+                                  if (coverageStatus && (coverageStatus.includes('all_'))) {
+                                      classNames = classNames.filter(c => c !== 'status-pulse');
+                                  }
+                             }
+                        }
+                    }
+
                     events.push({
                         id: compositeId,
                         title: displayName,
@@ -1012,7 +1042,8 @@
                             originalId: r.id,      // Keep reference to DB ID
                             eventDate: dStr,       // Explicit Date
                             dayEmailSent: isDaySent, // Computed Day Status
-                            orderKey: orderKey     // Keep them aligned
+                            orderKey: orderKey,     // Keep them aligned
+                            coverageStatus: coverageStatus // Pre-calculated!
                         }
                     });
 
@@ -1573,7 +1604,7 @@
         if(targets.length === 0) return;
 
         // BATCH PROCESSING: Process in chunks
-        const CHUNK_SIZE = 5; 
+        const CHUNK_SIZE = 10; // Increased concurrency 
         
         for (let i = 0; i < targets.length; i += CHUNK_SIZE) {
             if (currentCoverageRunId !== thisRunId) return;
@@ -1662,7 +1693,7 @@
             }));
 
             // Breathe
-            await new Promise(r => setTimeout(r, 100));
+            await new Promise(r => setTimeout(r, 10));
         }
     }
 
