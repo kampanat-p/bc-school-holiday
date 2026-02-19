@@ -41,79 +41,53 @@ function getDashboardData(e) {
     let schoolSet = new Set();
     let coordSet = new Set();
     
-    // Metrics
-    let metrics = {
-      total: 0,
-      cancelBC: 0,
-      cancelSchool: 0,
-      covered: 0
-    };
-
     // -----------------------------------------------------------------
     // STRATEGY: Prefer Cache for speed
     // -----------------------------------------------------------------
     const cacheSheet = ss.getSheetByName('cache_today_session');
     const useCache = (cacheSheet && cacheSheet.getLastRow() > 1);
     
-    // Impact Map
-    let impactMap = {}; 
-
     // --- MODE 1: FAST (Read from Cache) ---
     if (useCache) {
-      const data = cacheSheet.getDataRange().getValues(); 
-      // 0:id, 1:school_code, 2:class, 3:time, 4:act_teach_name, 5:act_type, 6:orig_name, 7:orig_type, 8:status, 9:school_id
+      // Columns: 0:id, 1:school_code, 2:class, 3:time, 4:act_teach_name, 5:act_type, 6:orig_name, 7:orig_type, 8:status, 9:school_id
+      const data = cacheSheet.getDataRange().getValues(); // Get raw values
       
       for (let i = 1; i < data.length; i++) {
         const row = data[i];
         if (!row[0]) continue;
         
-        const schoolCode = String(row[1]); // FORCE STRING to prevent "SAT" -> Date issues
-        const sCoord = coordinatorMap[schoolCode] || "Unassigned";
+        const schoolCode = row[1]; // Using Code from cache directly
+        const sCoord = coordinatorMap[schoolCode] || "Unassigned"; // Lookup Coord by Code
         
         const tName = row[4]; 
         const tType = row[5]; 
-        const origName = row[6]; 
-        const status = String(row[8]);
-        const timeSlot = String(row[3]); 
+        const status = row[8];
+        const timeSlot = String(row[3]); // "08:30 - 09:20"
         
+        // [UPDATE] Parse Time Slot correctly to show Start & End separately if needed
+        let timeParts = timeSlot.split('-').map(s => s.trim());
+        let startTime = timeParts[0] || "";
+        // We keep the full time string for display if desired, or just start
         let displayTime = timeSlot; 
 
-        // Collect Impact
-        if (origName && origName !== "-" && origName !== "Unknown") {
-            if (!impactMap[origName]) impactMap[origName] = [];
-            impactMap[origName].push({
-                time: displayTime,
-                school: schoolCode,
-                className: String(row[2]), 
-                status: status,
-                actualTeacher: tName
-            });
-        }
-
-        // Metrics & Inclusion
-        metrics.total++;
-        if (status.includes("Cancel")) {
-            if (status.toLowerCase().includes("bc")) metrics.cancelBC++;
-            else metrics.cancelSchool++; // Default to School if not BC (or explicitly School)
-        } else if (status === "Substituted" || status === "Cover") {
-            metrics.covered++;
-        }
-
-        // ALWAYS Push to sessions (User wants to see cancelled classes too)
-        sessions.push({
+        if (status.startsWith("Cancelled")) {
+           // Skip here, we will fetch Cancellations from Holiday File for better details
+        } else {
+           sessions.push({
              id: row[0],
-             time: displayTime, 
+             time: displayTime, // Show "Start - End"
              school: schoolCode,
-             class: String(row[2]),
+             class: row[2],
              teacher: tName,
              teacherType: tType,
              coordinator: sCoord,
              status: status
-        });
-        
-        teacherSet.add(tName);
-        schoolSet.add(schoolCode);
-        coordSet.add(sCoord);
+           });
+           
+           teacherSet.add(tName);
+           schoolSet.add(schoolCode);
+           coordSet.add(sCoord);
+        }
       }
     } 
     // --- MODE 2: SLOW (Fallback) ---
@@ -125,7 +99,7 @@ function getDashboardData(e) {
   
       if (sheet) {
         const data = sheet.getDataRange().getValues();
-        const dispData = sheet.getDataRange().getDisplayValues();
+        const dispData = sheet.getDataRange().getDisplayValues(); // For safer time reading
         
         for (let i = 1; i < data.length; i++) {
           const row = data[i];
@@ -133,49 +107,36 @@ function getDashboardData(e) {
           
           if (rowDate === todayStr) {
             const teachId = String(row[6]);
-            const origId = String(row[7]); 
-            const schoolId = String(row[5]); 
+            const schoolId = String(row[5]); // SC-XXXX
             
             const tName = userMap[teachId] ? userMap[teachId].name : teachId;
             const tType = userMap[teachId] ? userMap[teachId].type : "Unknown";
             
-            let origName = "-";
-            if (origId && origId !== teachId) {
-                origName = userMap[origId] ? userMap[origId].name : origId;
-            }
+            const sCode = schoolMap[schoolId] ? schoolMap[schoolId].name : schoolId; 
+            const sCoord = coordinatorMap[sCode] || "Unassigned"; // Lookup by School Code
             
-            const sCodeRaw = schoolMap[schoolId] ? schoolMap[schoolId].name : schoolId; 
-            const sCode = String(sCodeRaw); // FORCE STRING
-            const sCoord = coordinatorMap[sCode] || "Unassigned"; 
-            
+            // [UPDATE] Construct Start - End Time
             const tStart = dispData[i][2].substring(0,5);
             const tEnd = dispData[i][3].substring(0,5);
             const displayTime = `${tStart} - ${tEnd}`;
+            
             const status = String(row[8]);
             
-            const className = dispData[i][4]; // Use Display Value for Class Name
-
-            if (origName && origName !== "-" && origName !== "Unknown") {
-                if (!impactMap[origName]) impactMap[origName] = [];
-                impactMap[origName].push({ time: displayTime, school: sCode, className: className, status: status, actualTeacher: tName });
+            if (!status.startsWith("Cancelled")) {
+               sessions.push({
+                 id: row[0],
+                 time: displayTime,
+                 school: sCode,
+                 class: row[4],
+                 teacher: tName,
+                 teacherType: tType,
+                 coordinator: sCoord,
+                 status: status
+               });
+               teacherSet.add(tName);
+               schoolSet.add(sCode);
+               coordSet.add(sCoord);
             }
-
-            // Metrics
-            metrics.total++;
-            if (status.includes("Cancel")) {
-                if (status.toLowerCase().includes("bc")) metrics.cancelBC++;
-                else metrics.cancelSchool++;
-            } else if (status === "Substituted" || status === "Cover") {
-                metrics.covered++;
-            }
-
-            sessions.push({
-                 id: row[0], time: displayTime, school: sCode, class: className,
-                 teacher: tName, teacherType: tType, coordinator: sCoord, status: status
-            });
-            teacherSet.add(tName);
-            schoolSet.add(sCode);
-            coordSet.add(sCoord);
           }
         }
       }
@@ -185,32 +146,22 @@ function getDashboardData(e) {
     sessions.sort((a,b) => a.time.localeCompare(b.time));
 
     // -----------------------------------------------------------------
-    // NEW FETCHERS
+    // NEW FETCHERS: Unavailability & Cancellations
     // -----------------------------------------------------------------
-    const userMapForUA = getUserMap(ss); 
-    const absences = getAbsenceData(ss, userMapForUA); 
-    
-    // Inject Impacts
-    absences.forEach(a => {
-        if (impactMap[a.name]) {
-            a.impacts = impactMap[a.name];
-            a.impacts.sort((x,y) => x.time.localeCompare(y.time));
-        }
-    });
-
-    const holidays = getHolidayLogCancellations(); 
+    const userMapForUA = getUserMap(ss); // Need for absences logic
+    const absences = getAbsenceData(ss, userMapForUA); // New logic
+    const holidays = getHolidayLogCancellations(); // New logic
 
     const result = {
       absentCount: absences.length,
-      absentees: absences,
-      metrics: metrics, // New Metrics
+      absentees: absences, 
       filters: {
         teachers: Array.from(teacherSet).sort(),
         schools: Array.from(schoolSet).sort(),
         coordinators: Array.from(coordSet).sort()
       },
       sessions: sessions,
-      cancellations: holidays, 
+      cancellations: holidays, // Use external file for rich cancellation info
       source: useCache ? "Cache" : "Live" 
     };
 
@@ -241,25 +192,6 @@ function getCoordinatorMap(ss) {
 }
 
 function getAbsenceData(ss, userMap) {
-  // --- TRY CACHE FIRST ---
-  const cacheSheet = ss.getSheetByName('cache_today_unavailability');
-  if (cacheSheet && cacheSheet.getLastRow() > 1) {
-    const data = cacheSheet.getDataRange().getValues();
-    const absentees = [];
-    // 0:tid, 1:name, 2:type, 3:period, 4:reason
-    for (let i = 1; i < data.length; i++) {
-      absentees.push({
-        name: data[i][1],
-        type: data[i][2],
-        period: data[i][3],
-        reason: data[i][4],
-        impacts: [] // Cache doesn't store impacts logic yet, simple view is fine
-      });
-    }
-    return absentees;
-  }
-
-  // --- FALLBACK TO SLOW READ (If Cache Missing) ---
   const sh = ss.getSheetByName('fact_teacher_unavailability');
   if (!sh) return [];
   
@@ -291,6 +223,9 @@ function getAbsenceData(ss, userMap) {
          if (tStart && tEnd) timeStr = `${tStart} - ${tEnd}`;
          else timeStr = "All Day";
 
+         // Mock impacts for now (Could be complex to calculate impact unless we reuse cache)
+         // For dashboard simple view, empty impacts is fine, frontend handles it.
+         
          absentees.push({
            name: tInfo.name,
            type: tInfo.type,

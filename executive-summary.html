@@ -9,6 +9,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     
     <style>
@@ -32,6 +33,14 @@
         .dropdown-check-list.visible .items { display: block; }
         .item-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 0.75rem; cursor: pointer; }
         .item-row:hover { background-color: #f1f5f9; }
+
+        /* Accordion Style */
+        .accordion-item { border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 8px; background: white; overflow: hidden; }
+        .accordion-header { padding: 12px 16px; cursor: move; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; }
+        .accordion-header:hover { background: #f1f5f9; }
+        .accordion-content { display: none; padding: 16px; border-top: 1px solid #e2e8f0; }
+        .accordion-content.open { display: block; }
+        .ghost { opacity: 0.5; background: #c8ebfb; }
     </style>
 </head>
 <body class="text-slate-800" onclick="closeDropdowns(event)">
@@ -57,8 +66,8 @@
                     <div class="h-4 w-px bg-slate-300 mx-1"></div>
                     
                     <!-- Filters -->
-                    <div id="groupFilterWrapper" class="dropdown-check-list" onclick="toggleDropdown(event)">
-                        <span class="anchor" id="groupFilterAnchor">Select Groups</span>
+                    <div id="groupFilterWrapper" class="dropdown-check-list">
+                        <span class="anchor" id="groupFilterAnchor" onclick="toggleDropdown(event)">Select Groups</span>
                         <ul class="items" id="groupFilterItems">
                             <!-- Items populated by JS -->
                         </ul>
@@ -190,7 +199,76 @@
             </div>
         </div>
 
-        <!-- Section 6: Detailed Record Table (Paginated) -->
+        <!-- Section 6: School Personnel Analysis -->
+        <div class="card">
+            <h3 class="font-bold text-slate-700 mb-4 text-sm flex justify-between items-center">
+                <span>🏫 School Personnel Analysis</span>
+                <span class="text-[10px] text-slate-400 font-normal">Active vs Registered Staff</span>
+            </h3>
+            <div class="overflow-x-auto max-h-[500px]">
+                <table class="w-full text-xs">
+                    <thead class="bg-slate-50 sticky top-0 z-10 shadow-sm">
+                        <tr>
+                            <th class="w-[20%] text-left p-3">School Name</th>
+                            <th class="w-[40%] text-left p-3">Active Teachers (Count)</th>
+                            <th class="w-[40%] text-left p-3">Local Teachers (Registered)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="schoolAnalysisBody" class="divide-y divide-slate-100"></tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Section 7: Manager's Executive Report (Accordion) -->
+         <div class="card border-blue-200 ring-4 ring-blue-50/50">
+            <div class="flex flex-col mb-4">
+                <div class="flex justify-between items-start">
+                    <h3 class="font-bold text-blue-800 text-lg flex items-center gap-2">
+                        <i class="fas fa-file-contract text-blue-600"></i> Executive Summary Report
+                    </h3>
+                    <button onclick="copyReport()" class="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1 rounded transition">
+                        <i class="fas fa-copy mr-1"></i> Copy Text
+                    </button>
+                </div>
+                <div class="text-sm text-slate-500 mt-1" id="reportMeta">Analyzing selected criteria...</div>
+            </div>
+
+            <!-- Global Summary Stats -->
+            <div class="bg-blue-50 rounded-lg p-4 mb-6 border border-blue-100">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                    <div class="p-2">
+                        <div class="text-2xl font-bold text-blue-700" id="repTotalSessions">0</div>
+                        <div class="text-xs uppercase font-bold text-blue-400 mt-1">Total Classes</div>
+                    </div>
+                    <div class="p-2 border-l border-blue-200">
+                        <div class="text-2xl font-bold text-green-700" id="repTotalTeachers">0</div>
+                        <div class="text-xs uppercase font-bold text-green-500 mt-1">Active Teachers</div>
+                    </div>
+                    <div class="p-2 border-l border-blue-200">
+                        <div class="text-2xl font-bold text-indigo-700" id="repTotalLocal">0</div>
+                        <div class="text-xs uppercase font-bold text-indigo-500 mt-1">Local Teachers</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-between items-center mb-2">
+                <h4 class="text-sm font-bold text-slate-700">Detailed Breakdown by School</h4>
+                <div class="flex items-center gap-3">
+                    <button onclick="copyReport()" class="flex items-center gap-1 text-xs bg-white px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-800 transition-colors shadow-sm">
+                        <i class="fas fa-copy"></i>
+                        <span>Copy Report</span>
+                    </button>
+                    <div class="text-[10px] text-slate-400 italic">Drag to reorder items</div>
+                </div>
+            </div>
+
+            <!-- Sortable List Container -->
+            <div id="sortableReportList" class="space-y-2">
+                <!-- Items populated by JS -->
+            </div>
+        </div>
+
+        <!-- Section 8: Detailed Record Table (Paginated) -->
         <div class="card">
             <div class="flex justify-between items-center mb-4">
                 <h3 class="font-bold text-slate-700 text-sm">Detailed Class Records</h3>
@@ -302,16 +380,34 @@
                 updateGroupAnchor(); // Init Text
 
                 // Fetch Users
-                const { data: users } = await sbClient.from('dim_user').select('user_id, firstname_en, lastname_en, nickname_en').order('firstname_en');
+                const { data: users } = await sbClient.from('dim_user').select('user_id, firstname_en, lastname_en, nickname_en, affiliation, braincloud_id').order('firstname_en');
                 const teacherFilter = document.getElementById('teacherFilter');
                 
                 users.forEach(u => {
                     const id = String(u.user_id).trim();
-                    let n = u.firstname_en;
-                    if(u.lastname_en) n += " " + u.lastname_en.charAt(0) + ".";
-                    if(u.nickname_en) n += ` (${u.nickname_en})`;
-                    
+                    // New Format: Firstname + Lastname (No Nickname)
+                    let n = (u.firstname_en || '').trim();
+                    if(u.lastname_en) n += " " + u.lastname_en.trim();
+                    if(!n) n = `User ${id}`; // Fallback
+
                     metaData.users[id] = n;
+                    metaData.userDetails = metaData.userDetails || {};
+                    // Full Name Format (No Nickname, Full Lastname)
+                    const fullName = n;
+
+                    metaData.userDetails[id] = { 
+                        name: fullName, 
+                        affiliation: (u.affiliation || '').trim(), 
+                        bcId: u.braincloud_id 
+                    };
+
+                    // Pre-index affiliation for fast lookup
+                    if(u.affiliation) {
+                        const aff = String(u.affiliation).trim();
+                        metaData.affiliations = metaData.affiliations || {};
+                        if(!metaData.affiliations[aff]) metaData.affiliations[aff] = [];
+                        metaData.affiliations[aff].push(id);
+                    }
                     
                     // Add to filter
                     const opt = document.createElement('option');
@@ -367,25 +463,31 @@
             
             if(!start || !end) return alert("Please select a valid date range.");
 
-            // 1. Fetch Aggregation Data (Batched to bypass Supabase 1000 row limit)
-            let rawData = [];
-            let fetchMore = true;
-            let page = 0;
-            const CHUNK_SIZE = 1000;
-            
-            // UI Feedback
+            // FAST MODE for Dashboard: Fetch ALL data via CSV to minimize overhead
+            // CSV is much smaller than JSON object array
             const btn = document.querySelector('button[onclick="loadDashboard()"]');
             if(btn) {
                 var originalBtnText = btn.innerHTML;
                 btn.disabled = true;
+                btn.innerHTML = `<i class="fas fa-bolt fa-spin"></i> Fetching Data...`;
             }
 
+            let rawData = [];
+            
             try {
+                // If the range is > 2 months, use RPC if available or CSV download
+                // Here we stick to batched JSON but increase page size since we select few columns
+                // supabase default limit is usually 1000, so we must be careful.
+                // We'll use 1000 as chunk size to be safe and match default limits to avoid early termination
+                const CHUNK_SIZE = 1000;
+                let fetchMore = true;
+                let page = 0;
+                
                 while(fetchMore) {
-                    if(btn) btn.innerHTML = `<i class="fas fa-circle-notch fa-spin"></i> Fetching... (${rawData.length})`;
+                    btn.innerHTML = `<i class="fas fa-circle-notch fa-spin"></i> Loading... (${rawData.length})`;
                     
                     const { data, error } = await sbClient.from('fact_daily_session')
-                        .select('session_id, date, start_time, end_time, school_id, status, original_teacher_id, actual_teacher_id')
+                        .select('date,school_id,status,actual_teacher_id,original_teacher_id') // Minimal columns
                         .gte('date', start)
                         .lte('date', end)
                         .range(page * CHUNK_SIZE, (page + 1) * CHUNK_SIZE - 1);
@@ -396,6 +498,8 @@
                         rawData = rawData.concat(data);
                         page++;
                         // If we got fewer than requested, we are at the end
+                        // If we got exactly CHUNK_SIZE, we might have more, or exactly that many.
+                        // Safe to continue until 0 or < CHUNK_SIZE
                         if(data.length < CHUNK_SIZE) fetchMore = false;
                     } else {
                         fetchMore = false;
@@ -464,8 +568,15 @@
                 byStatusOverall: { Normal: 0, Covered: 0, CancelBC: 0, CancelSch: 0 },
                 byStatusGroup: {}, // { GroupName: { Normal: 0... } }
                 timeSeries: {}, // { Date: Count }
-                teachers: { teach: {}, cover: {}, covered: {} } // Counts
+                teachers: { teach: {}, cover: {}, covered: {} }, // Counts
+                schoolDetails: {}, // { schoolId: { teacherCounts: { tid: count } } }
+                totalTeachers: 0,
+                totalLocalStaff: 0
             };
+
+            // Calculate Distinct Counts Sets
+            const distinctActiveTeachers = new Set();
+            const distinctLocalStaff = new Set();
 
             // Init Time Series (Fill Zeros)
             if(startDate && endDate) {
@@ -525,7 +636,16 @@
                 
                 if (st !== "CancelBC" && st !== "CancelSch") {
                     // Teaching Count (Actual) - Only if class happened
-                    if(actId) stats.teachers.teach[actId] = (stats.teachers.teach[actId] || 0) + 1;
+                    if(actId) {
+                        stats.teachers.teach[actId] = (stats.teachers.teach[actId] || 0) + 1;
+                        
+                        // School Breakdown
+                        if(!stats.schoolDetails[sId]) stats.schoolDetails[sId] = { act: {} };
+                        stats.schoolDetails[sId].act[actId] = (stats.schoolDetails[sId].act[actId] || 0) + 1;
+                        
+                        // Add to set
+                        distinctActiveTeachers.add(actId);
+                    }
                     
                     if (st === "Covered") {
                          // Covering (Actual did the cover)
@@ -535,6 +655,23 @@
                     }
                 }
             });
+
+            // Count local staff for each school present in data
+            Object.keys(stats.bySchool).forEach(schoolName => {
+                // Find ID by Name (inefficient, need reverse lookup or pass filtering better)
+                // Filter metaData.schools where name matches
+                const sEntry = Object.entries(metaData.schools).find(([id, val]) => val.name === schoolName);
+                if(sEntry) {
+                    const code = sEntry[1].code;
+                    if(code) {
+                        const locals = metaData.affiliations[code] || [];
+                        locals.forEach(lid => distinctLocalStaff.add(lid));
+                    }
+                }
+            });
+
+            stats.totalTeachers = distinctActiveTeachers.size;
+            stats.totalLocalStaff = distinctLocalStaff.size;
 
             // -- SCORECARDS --
             document.getElementById('sc-total').innerText = stats.total.toLocaleString();
@@ -564,6 +701,229 @@
             renderRanking('rankTeaching', stats.teachers.teach, 15);
             renderRanking('rankCovering', stats.teachers.cover, 10);
             renderRanking('rankCovered', stats.teachers.covered, 10);
+
+            // -- SCHOOL ANALYSIS --
+            renderSchoolAnalysis(stats.schoolDetails, stats.totalTeachers, stats.totalLocalStaff);
+            renderManagerReport(stats.schoolDetails, stats.total, stats.totalTeachers, stats.totalLocalStaff, startDate, endDate);
+        }
+
+        function renderManagerReport(data, totalSess, totalTeach, totalLoc, start, end) {
+            // Update Report Meta
+            const groups = getSelectedGroups();
+            const groupText = groups === 'all' ? 'All School Groups' : groups.join(', ');
+            const dateText = `${new Date(start).toLocaleDateString('en-GB')} - ${new Date(end).toLocaleDateString('en-GB')}`;
+            document.getElementById('reportMeta').innerHTML = `
+                <span class="font-bold text-slate-700">${groupText}</span> • <span class="text-slate-500">${dateText}</span>
+            `;
+
+            document.getElementById('repTotalSessions').innerText = totalSess.toLocaleString();
+            document.getElementById('repTotalTeachers').innerText = totalTeach.toLocaleString();
+            document.getElementById('repTotalLocal').innerText = totalLoc.toLocaleString();
+
+            const container = document.getElementById('sortableReportList');
+            container.innerHTML = '';
+
+            const schoolIds = Object.keys(data).sort((a,b) => (metaData.schools[a]?.name || '').localeCompare(metaData.schools[b]?.name || ''));
+
+            if(schoolIds.length === 0) {
+                 container.innerHTML = '<div class="text-center text-slate-400 py-4 italic">No data available to report</div>';
+                 return;
+            }
+
+            schoolIds.forEach(sId => {
+                const school = metaData.schools[sId] || { name: 'Unknown', code: '' };
+                const activeTeachers = data[sId].act || {};
+                
+                // Active Card Set
+                const activeCards = Object.entries(activeTeachers)
+                    .sort((a,b) => b[1] - a[1])
+                    .map(([tid, count]) => {
+                        const name = metaData.userDetails[tid]?.name || `ID:${tid}`;
+                        return `<div class="bg-green-50 text-green-800 text-xs px-2 py-1 rounded border border-green-100 flex justify-between">
+                            <span>${name}</span>
+                            <span class="font-bold bg-white text-green-600 px-1 rounded ml-2">${count}</span>
+                        </div>`;
+                    }).join('');
+
+                // Local List
+                const code = school.code;
+                const localIds = metaData.affiliations[code] || [];
+                const localList = localIds.length > 0 ? localIds
+                    .sort((a,b) => (metaData.userDetails[a]?.bcId || 0) - (metaData.userDetails[b]?.bcId || 0))
+                    .map(tid => {
+                        const u = metaData.userDetails[tid];
+                        return `<li class="ml-4 list-disc marker:text-slate-400">${u.name} <span class="text-slate-400 text-[10px] ml-1">#${u.bcId}</span></li>`;
+                    }).join('') : '<li class="text-slate-400 italic list-none">No local staff registered</li>';
+
+                const distinctActive = Object.keys(activeTeachers).length;
+                const distinctLocal = localIds.length;
+
+                // Create Accordion Item
+                const item = document.createElement('div');
+                item.className = 'accordion-item group';
+                item.innerHTML = `
+                    <div class="accordion-header" onclick="this.nextElementSibling.classList.toggle('open'); this.querySelector('.fa-chevron-down').classList.toggle('rotate-180')">
+                        <div class="flex items-center gap-3">
+                            <i class="fas fa-grip-vertical text-slate-300 cursor-move group-hover:text-slate-500"></i>
+                            <div>
+                                <div class="font-bold text-sm text-slate-700">${school.name}</div>
+                                <div class="text-[10px] text-slate-500 mt-0.5">
+                                    <span class="bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-bold">${distinctActive} Teachers</span>
+                                    <span class="bg-indigo-50 px-1.5 py-0.5 rounded text-indigo-600 font-bold ml-1">${distinctLocal} Local Teachers</span>
+                                </div>
+                            </div>
+                        </div>
+                        <i class="fas fa-chevron-down text-slate-400 transition-transform duration-200"></i>
+                    </div>
+                    <div class="accordion-content">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 p-4">
+                            <div>
+                                <h5 class="text-xs font-bold text-green-700 uppercase mb-2 border-b border-green-100 pb-1">
+                                    <i class="fas fa-chalkboard-teacher mr-1"></i> Responsible Teachers (${distinctActive})
+                                </h5>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[200px] overflow-y-auto pr-1 custom-scrollbar">
+                                    ${activeCards}
+                                </div>
+                            </div>
+                            <div>
+                                <h5 class="text-xs font-bold text-indigo-700 uppercase mb-2 border-b border-indigo-100 pb-1">
+                                    <i class="fas fa-users mr-1"></i> Local Teachers (${distinctLocal})
+                                </h5>
+                                <ul class="text-xs text-slate-600 space-y-1 max-h-[200px] overflow-y-auto pr-1 custom-scrollbar">
+                                    ${localList}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+            
+             // Sortable Init
+            if(!window.sortableInstance) {
+                window.sortableInstance = new Sortable(container, {
+                    animation: 150,
+                    handle: '.accordion-header', // drag handle
+                    ghostClass: 'bg-blue-50'
+                });
+            }
+        }
+
+        function copyReport() {
+            const container = document.getElementById('sortableReportList');
+            const items = container.querySelectorAll('.accordion-item');
+            let text = `Executive Summary Report\n${document.getElementById('reportMeta').innerText}\n\n`;
+            
+            items.forEach(item => {
+                const header = item.querySelector('.accordion-header');
+                const title = header.querySelector('.font-bold').innerText;
+                const stats = header.querySelector('.text-\\[10px\\]').innerText; // Teachers / Locals
+                
+                text += `## ${title}\n   ${stats.replace(/\n/g, ' ')}\n`;
+                
+                // Get details
+                const content = item.querySelector('.accordion-content');
+                // Simplifying for clipboard - maybe just list names?
+                // Let's grab the names from the rendered HTML if possible or simpler just the counts
+                // For a manager report, usually summaries are better.
+                // Let's include the teacher names.
+                
+                const teachers = [];
+                item.querySelectorAll('.accordion-content div.bg-green-50 span:first-child').forEach(s => teachers.push(s.innerText));
+                if(teachers.length > 0) text += `   Teachers: ${teachers.join(', ')}\n`;
+                
+                text += '\n';
+            });
+            
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Report copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+                alert('Failed to copy report.');
+            });
+        }
+
+        function renderSchoolAnalysis(data, totalTeachers, totalLocalStaff) {
+            const tbody = document.getElementById('schoolAnalysisBody');
+            
+            // Add Summary Header Row
+            const summaryHTML = `
+                <tr class="bg-blue-50 border-b-2 border-blue-100">
+                    <td class="p-3 font-bold text-blue-800">
+                        <i class="fas fa-calculator mr-1"></i> SELECTION SUMMARY
+                    </td>
+                    <td class="p-3 font-bold text-blue-800">
+                        ${totalTeachers || 0} Distinct Teachers Active
+                    </td>
+                    <td class="p-3 font-bold text-blue-800">
+                        ${totalLocalStaff || 0} Local Teachers Registered
+                    </td>
+                </tr>
+            `;
+
+            tbody.innerHTML = summaryHTML;
+            
+            // Get sorted list of school IDs present in data
+            const schoolIds = Object.keys(data).sort((a,b) => (metaData.schools[a]?.name || '').localeCompare(metaData.schools[b]?.name || ''));
+            
+            if(schoolIds.length === 0) {
+                 tbody.innerHTML = '<tr><td colspan="3" class="p-3 text-center text-slate-400">No data available for selected period</td></tr>';
+                 return;
+            }
+
+            schoolIds.forEach(sId => {
+                const school = metaData.schools[sId] || { name: 'Unknown', code: '', group: '' };
+                const activeTeachers = data[sId].act || {};
+                
+                // Format Active Teachers (Sorted by Count Desc)
+                const activeList = Object.entries(activeTeachers)
+                    .sort((a,b) => b[1] - a[1]) 
+                    .map(([tid, count]) => {
+                        const name = metaData.users[tid] || `ID:${tid}`;
+                        return `<span class="inline-block bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5 m-0.5 text-[10px] text-blue-700 whitespace-nowrap">${name} <span class="font-bold">(${count})</span></span>`;
+                    }).join('');
+
+                // Get Local Teachers (Sorted by BC ID)
+                const localIds = metaData.affiliations[school.code] || [];
+                
+                let localList = '<span class="text-slate-400 italic text-[10px]">None registered</span>';
+                if(localIds.length > 0) {
+                    localList = localIds
+                        .sort((a,b) => (metaData.userDetails[a]?.bcId || 0) - (metaData.userDetails[b]?.bcId || 0))
+                        .map(tid => {
+                            const u = metaData.userDetails[tid];
+                            return `<div class="truncate py-0.5 hover:text-slate-900" title="BC ID: ${u.bcId}">
+                                <span class="font-mono text-slate-300 mr-1">${u.bcId}</span> ${u.name}
+                            </div>`;
+                        }).join('');
+                }
+
+                const activeListHTML = Object.entries(activeTeachers)
+                    .sort((a,b) => b[1] - a[1]) 
+                    .map(([tid, count]) => {
+                         const name = metaData.userDetails[tid]?.name || metaData.users[tid] || `ID:${tid}`;
+                         return `<span class="inline-flex items-center bg-white border border-slate-200 rounded px-1.5 py-0.5 m-0.5 text-[10px] text-slate-600 whitespace-nowrap shadow-sm">
+                            <span class="mr-1">${name}</span>
+                            <span class="font-bold text-blue-600 bg-blue-50 px-1 rounded-sm">${count}</span>
+                         </span>`;
+                    }).join('');
+                
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-0 odd:bg-white even:bg-slate-50/50">
+                        <td class="p-3 align-top w-[20%]">
+                            <div class="font-bold text-slate-700 text-xs">${school.name}</div>
+                            <div class="text-[10px] text-slate-400 font-medium">${school.group}</div>
+                            <div class="text-[9px] font-mono text-slate-300 mt-1 uppercase tracking-wide">${school.code || ''}</div>
+                        </td>
+                        <td class="p-3 align-top w-[40%]">
+                            <div class="flex flex-wrap items-start content-start gap-0.5">${activeListHTML || '<span class="text-slate-300 italic">-</span>'}</div>
+                        </td>
+                        <td class="p-3 align-top w-[40%]">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 max-h-[150px] overflow-y-auto custom-scrollbar text-[10px] text-slate-500 pr-1">${localList}</div>
+                        </td>
+                    </tr>
+                `;
+            });
         }
 
         // --- CHART RENDERING HELPERS ---
@@ -658,18 +1018,57 @@
             });
         }
 
-        function renderTimeSeries(data) {
+        function renderTimeSeries(dailyData) {
             const ctx = document.getElementById('chartTimeSeries').getContext('2d');
             if(chartInstances.timeSeries) chartInstances.timeSeries.destroy();
             
-            const rawLabels = Object.keys(data).sort();
-            const values = rawLabels.map(d => data[d]);
+            // Determine Aggregation Level
+            const days = Object.keys(dailyData).length;
+            let aggType = 'Day';
+            let aggData = {};
             
-            // Nice formatting: "Mon 11 Feb"
-            const displayLabels = rawLabels.map(d => {
-                const parts = d.split('-');
-                const localDate = new Date(parts[0], parts[1]-1, parts[2]); // Force Local Midnight
-                return localDate.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+            if (days > 730) aggType = 'Month'; // > 2 Years
+            else if (days > 90) aggType = 'Week'; // > 3 Months
+
+            // Aggregation Logic
+            const sortedDates = Object.keys(dailyData).sort();
+            
+            sortedDates.forEach(dateStr => {
+                const val = dailyData[dateStr];
+                const d = new Date(dateStr);
+                let key = dateStr;
+                
+                if(aggType === 'Month') {
+                    // key = "YYYY-MM"
+                    key = dateStr.substring(0, 7); 
+                } else if (aggType === 'Week') {
+                    // key = "Min-Date-Of-Week"
+                    // Get Monday
+                    const day = d.getDay() || 7; 
+                    if(day !== 1) d.setHours(-24 * (day - 1));
+                    key = d.toISOString().split('T')[0];
+                }
+                
+                aggData[key] = (aggData[key] || 0) + val;
+            });
+
+            const aggLabels = Object.keys(aggData).sort();
+            const aggValues = aggLabels.map(k => aggData[k]);
+            
+            // Nice Formatting for Display
+            const displayLabels = aggLabels.map(k => {
+                if(aggType === 'Month') {
+                    const [y, m] = k.split('-');
+                    return new Date(y, m-1).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
+                } else if (aggType === 'Week') {
+                    const parts = k.split('-');
+                    const d = new Date(parts[0], parts[1]-1, parts[2]);
+                    return `Week of ${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
+                } else {
+                    const parts = k.split('-');
+                    const d = new Date(parts[0], parts[1]-1, parts[2]);
+                    return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+                }
             });
 
             chartInstances.timeSeries = new Chart(ctx, {
@@ -677,13 +1076,13 @@
                 data: {
                     labels: displayLabels,
                     datasets: [{
-                        label: 'Daily Sessions',
-                        data: values,
+                        label: `${aggType}ly Sessions`,
+                        data: aggValues,
                         borderColor: '#0ea5e9',
                         backgroundColor: 'rgba(14, 165, 233, 0.1)',
                         fill: true,
                         tension: 0.3,
-                        pointRadius: 3,
+                        pointRadius: aggType === 'Day' ? 3 : 4,
                         pointHoverRadius: 6
                     }]
                 },
@@ -692,13 +1091,13 @@
                     scales: { y: { beginAtZero: true } },
                     interaction: {
                         mode: 'index',
-                        intersect: false, // Hover anywhere on the x-axis index
+                        intersect: false, 
                     },
                     plugins: {
                         tooltip: {
                             callbacks: {
                                 title: function(context) {
-                                    return context[0].label; // Use the nicely formatted label
+                                    return context[0].label; 
                                 }
                             }
                         }

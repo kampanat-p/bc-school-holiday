@@ -17,8 +17,8 @@ function syncDailySchedule() {
  */
 function runBackfill() {
   // --- ตั้งค่าช่วงเวลาที่จะ Backfill ---
-  const START_DATE = "2025-06-01"; 
-  const END_DATE =   "2025-06-15"; 
+  const START_DATE = "2026-01-14"; 
+  const END_DATE =   "2026-01-22"; 
   // ----------------------------------
 
   const start = new Date(START_DATE);

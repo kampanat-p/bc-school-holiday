@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Updates (Email Generator)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600&family=Courier+Prime&display=swap');
+        body { font-family: 'Sarabun', sans-serif; background-color: #f8fafc; }
+        .font-mono { font-family: 'Courier Prime', monospace; }
+        
+        /* Copy Animation */
+        @keyframes copyFade {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-copy { animation: copyFade 0.3s ease-out; }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen pb-20">
+
+    <!-- Header -->
+    <div class="bg-white border-b border-gray-200 sticky top-0 z-50 shadow-sm">
+        <div class="max-w-5xl mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <div class="bg-indigo-600 text-white w-8 h-8 rounded flex items-center justify-center">
+                    <i class="fas fa-mail-bulk"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-gray-800 leading-tight">Daily Updates</h1>
+                    <p class="text-xs text-gray-400">Email Format Generator</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                 <!-- Date Picker -->
+                 <input type="date" id="datePicker" class="text-sm bg-gray-50 border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:outline-none" onchange="loadDailyData()">
+                 
+                 <!-- Refresh -->
+                 <button onclick="loadDailyData()" class="w-8 h-8 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 flex items-center justify-center transition" title="Refresh Data">
+                    <i class="fas fa-sync-alt" id="refreshIcon"></i>
+                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="max-w-5xl mx-auto px-4 py-6 grid gap-6 md:grid-cols-2">
+        
+        <!-- Left Column: Data Preview -->
+        <div class="space-y-6">
+            
+            <!-- Cover List -->
+            <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+                <div class="bg-gray-50 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
+                    <h3 class="font-bold text-gray-700 text-sm">New_Class cover today</h3>
+                    <span id="coverCount" class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">0</span>
+                </div>
+                <div id="coverList" class="p-4 space-y-1 text-sm font-mono text-gray-600">
+                    <p class="text-gray-400 italic text-center text-xs">Loading...</p>
+                </div>
+            </div>
+
+            <!-- Cancellation List -->
+            <div class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+                <div class="bg-gray-50 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
+                    <h3 class="font-bold text-gray-700 text-sm">Class cancellation</h3>
+                    <span id="cancelCount" class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">0</span>
+                </div>
+                <div id="cancelList" class="p-4 space-y-1 text-sm font-mono text-gray-600">
+                     <p class="text-gray-400 italic text-center text-xs">Loading...</p>
+                </div>
+            </div>
+
+            <!-- Pending Actions (Alert Box) -->
+            <div id="pendingBox" class="hidden bg-amber-50 border border-amber-200 rounded-lg p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-amber-800 font-bold text-sm uppercase flex items-center">
+                        <i class="fas fa-clock mr-2"></i> Pending Tickets (Not in DB)
+                    </h3>
+                    <span id="pendingCount" class="bg-amber-200 text-amber-800 text-[10px] px-2 py-0.5 rounded-full font-bold">0</span>
+                </div>
+                <div class="text-[10px] text-amber-700/70 mb-3 italic">
+                    These are submitted tickets, not yet updated to the database.<br>
+                    Showing relevant sessions for the selected date only.
+                </div>
+                <div id="pendingList" class="space-y-2 text-sm text-amber-900/80 max-h-96 overflow-y-auto">
+                    <!-- Injected JS -->
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Column: Final Email Output -->
+        <div class="md:h-[calc(100vh-120px)] md:sticky md:top-24">
+            <div class="bg-slate-800 text-slate-300 rounded-lg shadow-lg h-full flex flex-col overflow-hidden border border-slate-700">
+                <!-- Toolbar -->
+                <div class="bg-slate-900 p-3 flex justify-between items-center border-b border-slate-700">
+                    <span class="text-xs font-mono text-slate-400">PREVIEW</span>
+                    <button onclick="copyToClipboard()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-3 py-1.5 rounded font-bold transition flex items-center gap-1 group">
+                        <i class="fas fa-copy"></i> <span>COPY TO CLIPBOARD</span>
+                    </button>
+                </div>
+                
+                <!-- Text Area -->
+                <div class="flex-1 p-4 overflow-y-auto bg-slate-800 font-mono text-xs leading-relaxed custom-scrollbar relative">
+                    <div id="emailPreview" class="whitespace-pre-wrap select-text selection:bg-indigo-500 selection:text-white">
+                        <!-- Generated Text -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-5 right-5 bg-gray-800 text-white px-4 py-2 rounded shadow-lg transform translate-y-20 opacity-0 transition duration-300 flex items-center gap-2 z-50">
+        <i class="fas fa-check-circle text-green-400"></i>
+        <span>Copied to clipboard!</span>
+    </div>
+
+<script>
+    // --- CONFIG ---
+    const CONFIG = {
+        SUPABASE_URL: "https://cgznmxcecljfybcgujjb.supabase.co",
+        SUPABASE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzc2NTI1MywiZXhwIjoyMDgzMzQxMjUzfQ.kTov9RFS-FVDNZokkslR0jFH2zaKTUYSBH9NQ8aItlQ",
+    };
+    const db = supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+    
+    // --- STATE ---
+    let state = {
+        date: null,
+        covers: [],
+        cancellations: [], // Array of strings (formatted)
+        pendingTickets: [],
+        generatedText: ""
+    };
+
+    // --- INIT ---
+    window.onload = () => {
+        // Set Date Picker to Today (BKK Time)
+        const now = new Date().toLocaleString("en-CA", { timeZone: "Asia/Bangkok", year: 'numeric', month: '2-digit', day: '2-digit' });
+        // en-CA gives YYYY-MM-DD which matches input type="date"
+        document.getElementById('datePicker').value = now;
+        loadDailyData();
+    };
+
+    async function loadDailyData() {
+        const dateVal = document.getElementById('datePicker').value; // YYYY-MM-DD
+        state.date = dateVal;
+
+        // UI Loading
+        document.getElementById('refreshIcon').classList.add('fa-spin');
+        document.getElementById('coverList').innerHTML = '<p class="text-gray-400 italic text-center text-xs animate-pulse">Fetching covers...</p>';
+        document.getElementById('cancelList').innerHTML = '<p class="text-gray-400 italic text-center text-xs animate-pulse">Consolidating cancellations...</p>';
+        document.getElementById('pendingBox').classList.add('hidden');
+
+        try {
+            // 1. Fetch Sessions, Schools, and Tickets in parallel
+            const [sessRes, schoolRes, tickRes] = await Promise.all([
+                db.from('fact_daily_session')
+                  .select('school_id, school_code, class_name, start_time, end_time, status, original_teacher_id, actual_teacher_id, original_teacher_name, actual_teacher_name, date')
+                  .eq('date', dateVal),
+                db.from('dim_school')
+                  .select('school_id, school_code'),
+                db.from('requests_log')
+                  .select('school_code, user_name, start_date, request_category, reason')
+                  .eq('status', 'Pending')
+            ]);
+
+            if(sessRes.error) throw sessRes.error;
+            if(schoolRes.error) throw schoolRes.error;
+            if(tickRes.error) throw tickRes.error;
+
+            let sessions = sessRes.data;
+            const schools = schoolRes.data;
+            const tickets = tickRes.data;
+
+            // Map School ID -> Code
+            const schoolMap = {};
+            schools.forEach(s => {
+                if(s.school_id) schoolMap[s.school_id] = s.school_code;
+            });
+
+            // Hydrate Sessions with School Code if missing
+            sessions = sessions.map(s => {
+                if(!s.school_code && s.school_id) {
+                    s.school_code = schoolMap[s.school_id] || 'Unknown';
+                }
+                return s;
+            });
+
+            // --- PROCESS DATA ---
+            processPending(tickets);
+            processCovers(sessions);
+            processCancellations(sessions);
+
+            // --- RENDER ---
+            renderLists();
+            generateEmailText();
+
+        } catch (err) {
+            console.error(err);
+            alert("Error loading data: " + err.message);
+        } finally {
+            document.getElementById('refreshIcon').classList.remove('fa-spin');
+        }
+    }
+
+    function processPending(tickets) {
+        // Just show simple list
+        state.pendingTickets = tickets || [];
+    }
+
+    function processCovers(sessions) {
+        // Logic: Status='Substituted' OR (Actual != Original & both exist) OR Status has 'Cover'
+        // Exclude Cancelled
+        const covers = sessions.filter(s => {
+            const status = (s.status || "").toLowerCase();
+            if (status.includes('cancelled')) return false;
+            
+            // Explicit Status
+            if (status.includes('substituted') || status === 'cover') return true;
+
+            // ID Mismatch
+            if (s.original_teacher_id && s.actual_teacher_id && 
+                String(s.original_teacher_id).trim() !== String(s.actual_teacher_id).trim()) {
+                return true;
+            }
+            return false;
+        });
+
+        // Format: "HH:mm - HH:mm Class - ActualTeacher"
+        state.covers = covers.sort((a,b) => a.start_time.localeCompare(b.start_time)).map(s => {
+            const start = (s.start_time || "").substring(0,5);
+            const end = (s.end_time || "").substring(0,5);
+            // Teacher Name: Try to use name, fallback to ID?
+            // Usually dashboard logic maps IDs. Here we might need a quick fallback map or rely on `actual_teacher_name` if available in view.
+            // The table has `actual_teacher_id`, but `dashboard.html` joins `dim_user`.
+            // For this lightweight tool, let's use a simpler approach. If `actual_teacher_name` column existed it'd be great.
+            // Actually, in dashboard we fetched users map. 
+            // Let's check if the query result has names? 
+            // My query above: `original_teacher_name, actual_teacher_name`. 
+            // Note: `fact_daily_session` usually DOES NOT have name columns unless it's a view. 
+            
+            // Correction: The table is raw. I should fetch users to map names properly like dashboard. 
+            // However, to keep it simple, I'll rely on `actual_teacher_id` unless I add a user fetch.
+            // Let's fetch users quickly or use ID. 
+            // User requested format: "Sue". This is `nickname`.
+            // Let's try to grab names from a minimal user fetch now.
+            return {
+                timeStr: `${start} - ${end}`,
+                class: s.class_name,
+                teacherId: s.actual_teacher_id,
+                raw: s
+            };
+        });
+        
+        // Async Name Fetching helper called later or we fetch users in loadDailyData.
+        // Let's update `loadDailyData` to fetch users to get Nicknames.
+    }
+
+    // Consolidated Cancellation Logic
+    function processCancellations(sessions) {
+        // 1. Group by School Code
+        const schoolMap = {};
+        
+        sessions.forEach(s => {
+            const code = s.school_code || "Unknown";
+            if (!schoolMap[code]) schoolMap[code] = { total: 0, cancelled: [] };
+            
+            schoolMap[code].total++;
+            
+            if ((s.status || "").toLowerCase().includes("cancelled")) {
+                schoolMap[code].cancelled.push(s.class_name);
+            }
+        });
+
+        const cancelLines = [];
+        
+        // 2. Apply "All vs Partial" Rule
+        Object.keys(schoolMap).sort().forEach(code => {
+            const stats = schoolMap[code];
+            if (stats.cancelled.length > 0) {
+                if (stats.cancelled.length === stats.total) {
+                    // ALL CANCELLED -> Show Code Only
+                    cancelLines.push(`- ${code}`);
+                } else {
+                    // PARTIAL -> Show Code + Classes
+                    // Deduplicate class names just in case
+                    const uniqueClasses = [...new Set(stats.cancelled)].sort();
+                    cancelLines.push(`- ${code} (${uniqueClasses.join(', ')})`);
+                }
+            }
+        });
+        
+        state.cancellations = cancelLines;
+    }
+
+    // --- RE-IMPLEMENTING WITH USER FETCH ---
+    // Overwrite the simple one to include User Map
+    async function loadDailyData() {
+        const dateVal = document.getElementById('datePicker').value;
+        state.date = dateVal;
+
+        document.getElementById('refreshIcon').classList.add('fa-spin');
+        try {
+            // Parallel Fetch: Sessions, Users (name and surname needed), Schools (for code map), Pending Tickets
+            const [sessRes, userRes, schoolRes, tickRes] = await Promise.all([
+                db.from('fact_daily_session').select('*').eq('date', dateVal),
+                db.from('dim_user').select('user_id, firstname_en, lastname_en, nickname_en'),
+                db.from('dim_school').select('school_id, school_code'),
+                db.from('requests_log').select('school_code, user_name, status, request_category, start_date, end_date, teacher_id, affected_sessions').eq('status', 'Pending')
+            ]);
+            
+            if(sessRes.error) throw sessRes.error;
+            if(userRes.error) throw userRes.error;
+            if(schoolRes.error) throw schoolRes.error; // Check school fetch errors
+            if(tickRes.error) throw tickRes.error;
+
+            // Create User Map
+            const userMap = {};
+            const userIdMap = {}; // Map ID -> Name for easy lookup
+            userRes.data.forEach(u => {
+                const fullName = `${u.firstname_en || ''} ${u.lastname_en || ''}`.trim();
+                const displayName = fullName || u.nickname_en || `T.${u.user_id}`;
+                userMap[String(u.user_id).trim()] = displayName;
+                userIdMap[String(u.user_id).trim()] = displayName;
+            });
+
+
+            // Create School Map (ID -> Code)
+            const schoolCodeMap = {};
+            schoolRes.data.forEach(s => {
+                 schoolCodeMap[s.school_id] = s.school_code;
+            });
+
+            // Hydrate Sessions with School Code if missing
+            const enrichedSessions = sessRes.data.map(s => {
+                 if (!s.school_code && s.school_id) {
+                     s.school_code = schoolCodeMap[s.school_id] || "Unknown";
+                 }
+                 // Add Teacher Names if available (Original Teacher)
+                 if (!s.original_teacher_name && s.original_teacher_id) {
+                     s.original_teacher_name = userMap[String(s.original_teacher_id).trim()] || s.original_teacher_id;
+                 }
+                 
+                 return s;
+            });
+            
+            state.allSessions = enrichedSessions; // Save for Pending Tickets Logic
+
+            
+            // Process Covers with Names
+            const coversList = enrichedSessions.filter(s => {
+                const status = (s.status || "").toLowerCase();
+                const org = String(s.original_teacher_id || "").trim();
+                const act = String(s.actual_teacher_id || "").trim();
+
+                if (status.includes('cancelled')) return false;
+                // Cover if: explicit status OR (teachers diff AND both exist)
+                // Note: Sometimes covers are just teachers assigned to slots with no original teacher? 
+                // Logic: "New_Class cover today"
+                return (status.includes('substituted') || status === 'cover' || (org && act && org !== act));
+            }).sort((a,b) => (a.start_time || "").localeCompare(b.start_time || ""));
+            
+            state.rawCovers = coversList; // Save for logic check
+
+            state.covers = coversList.map(s => {
+                const start = (s.start_time || "").substring(0,5);
+                const end = (s.end_time || "").substring(0,5);
+                const tName = userMap[String(s.actual_teacher_id).trim()] || s.actual_teacher_id || "Unknown";
+                return `${start} - ${end} ${s.class_name} - ${tName}`;
+            });
+
+            // Process Cancellations & Pending
+            processCancellations(enrichedSessions); // Use Enriched Data
+            processPending(tickRes.data);
+
+            renderLists();
+            generateEmailText();
+
+        } catch (err) {
+            console.error(err);
+            alert("Error: " + err.message);
+        } finally {
+            document.getElementById('refreshIcon').classList.remove('fa-spin');
+        }
+    }
+
+
+    async function renderLists() {
+        // Pending
+        const pList = document.getElementById('pendingList');
+        const pBox = document.getElementById('pendingBox');
+        
+        let pendingContentHTML = "";
+        let visibleCount = 0;
+
+        if (state.pendingTickets.length > 0) {
+            
+            // Collect all relevant session strings
+            // We need to async fetch session details if they are just IDs in affected_sessions?
+            // "I also want to know what time and what classes and who teach those classes"
+            // If affected_sessions is array of IDs, we need to fetch them.
+            // Admin calendar does this in `fetchEvents` or `parseSessions`.
+            // Wait, making `renderLists` async is risky if called synchronously elsewhere.
+            // Let's assume we can fetch data needed beforehand OR use what we have.
+            // If affected_sessions is just IDs, we are stuck unless we fetch more facts.
+            // BUT: In `loadDailyData`, we fetched `fact_daily_session` for the WHOLE DAY.
+            // So if a ticket references a session ID that is on THIS DAY, we already have it in `sessRes.data` (which is in `state.covers` source `enrichedSessions` local var in loadDailyData).
+            // We need to pass `enrichedSessions` to `renderLists` or store in `state`.
+            // Let's modify `state` to hold `dailySessions`.
+            
+            const dateVal = state.date;
+            
+            // Process Tickets
+            let ticketItems = state.pendingTickets.map(t => {
+                const tStart = (t.start_date || "").substring(0,10);
+                const tEnd = (t.end_date || "").substring(0,10);
+                
+                // Strictly Filter for selected Date
+                if (dateVal < tStart || (tEnd && dateVal > tEnd)) return null;
+
+                // Expand Ticket content
+                const isTeacher = t.request_category === 'Teacher';
+                let details = [];
+                let relevantSessions = [];
+
+                if (isTeacher) {
+                    const sessionsArr = state.allSessions || [];
+                    let raw = [];
+                    try {
+                        if (typeof t.affected_sessions === 'string') {
+                            if (t.affected_sessions.startsWith('[') || t.affected_sessions.startsWith('{')) raw = JSON.parse(t.affected_sessions);
+                        } else {
+                            raw = t.affected_sessions;
+                        }
+                    } catch(e) {}
+                    
+                    if (Array.isArray(raw)) {
+                       // ID List
+                       raw.forEach(sid => {
+                           const s = sessionsArr.find(dbS => dbS.session_id == sid || dbS.session_id == String(sid));
+                           if (s) relevantSessions.push(s);
+                       });
+                    } else if (typeof raw === 'object' && raw.startTime) {
+                        // Partial Day
+                         sessionsArr.forEach(s => {
+                             if (String(s.original_teacher_id) === String(t.teacher_id) && 
+                                 s.start_time >= raw.startTime && s.end_time <= raw.endTime) {
+                                     relevantSessions.push(s);
+                             }
+                         });
+                    }
+                    
+                    // Fallback: If no sessions mapped but valid date, maybe look for ANY session for this teacher?
+                    if (relevantSessions.length === 0 && (!raw || raw.length === 0)) {
+                         // Only if no specific affected_sessions were provided, look for ANY class
+                         sessionsArr.forEach(s => {
+                             if (String(s.original_teacher_id) === String(t.teacher_id)) relevantSessions.push(s);
+                         });
+                    }
+
+                    if (relevantSessions.length > 0) {
+                        relevantSessions.forEach(s => {
+                             const time = `${(s.start_time||"").substring(0,5)} - ${(s.end_time||"").substring(0,5)}`;
+                             details.push(`• ${time} <b>${s.class_name}</b> (Teacher: ${s.original_teacher_name || t.user_name})`);
+                        });
+                    } else {
+                         details.push(`• All classes for ${t.user_name}`);
+                    }
+
+                } else {
+                    // School Ticket
+                    // Find all sessions for this school
+                    const sessionsArr = state.allSessions || [];
+                    relevantSessions = sessionsArr.filter(s => s.school_code === t.school_code);
+                    details.push(`• All classes for School <b>${t.school_code}</b> cancelled`);
+                }
+                
+                // --- Determine isHandled (Greyed out) ---
+                // Handled if:
+                // 1. Relevant sessions exist AND are all dealt with (Cancelled or Covered).
+                // 2. OR School ticket and school code is in cancellations list (Full cancellation).
+                
+                let isHandled = false;
+                
+                if (relevantSessions.length > 0) {
+                    const allDealtWith = relevantSessions.every(s => {
+                        const status = (s.status || "").toLowerCase();
+                        const org = String(s.original_teacher_id || "").trim();
+                        const act = String(s.actual_teacher_id || "").trim();
+                        
+                        const isCancelled = status.includes('cancelled');
+                        const isCovered = (status.includes('substituted') || status === 'cover' || (org && act && org !== act));
+                        
+                        return isCancelled || isCovered;
+                    });
+                    if (allDealtWith) isHandled = true;
+                } else if (!isTeacher) {
+                    // School ticket with no sessions found? Maybe it's handled if school appears effectively in cancellation list?
+                    if (state.cancellations.some(c => c.includes(t.school_code))) isHandled = true;
+                }
+                
+                return {
+                    ticket: t,
+                    lines: details,
+                    isTeacher,
+                    isHandled
+                };
+            }).filter(x => x !== null);
+
+            // Sort: Pending (not handled) First, then Handled
+            ticketItems.sort((a,b) => {
+                if (a.isHandled === b.isHandled) return 0;
+                return a.isHandled ? 1 : -1;
+            });
+
+            visibleCount = ticketItems.length;
+            
+            if (visibleCount > 0) {
+                pBox.classList.remove('hidden');
+                pendingContentHTML = ticketItems.map(item => {
+                    const t = item.ticket;
+                    // Styling
+                    const containerClass = item.isHandled ? "bg-gray-100 border-gray-200 opacity-60 grayscale" : "bg-amber-100/40 border-amber-200";
+                    const badgeClass = item.isHandled ? "bg-gray-200 text-gray-500" : "bg-amber-200 text-amber-800";
+                    const badgeText = item.isHandled ? "Done" : "Pending";
+                    const iconColor = item.isHandled ? "text-gray-500" : "text-amber-800";
+                    
+                    return `<div class="${containerClass} border p-2 rounded mb-2 transition-all">
+                        <div class="flex justify-between items-start mb-1">
+                             <span class="text-xs font-bold ${iconColor}"><i class="fas fa-ticket-alt"></i> Ticket #${t.id || ''} (${t.user_name})</span>
+                             <span class="text-[10px] ${badgeClass} px-1 rounded">${badgeText}</span>
+                        </div>
+                        <div class="pl-2 space-y-1 text-xs text-gray-700 font-mono">
+                            ${item.lines.join('<br>')}
+                        </div>
+                    </div>`;
+                }).join('');
+            } else {
+                 pendingContentHTML = `<p class="text-gray-400 italic text-center text-xs">No pending tickets for this date.</p>`;
+                 if (state.pendingTickets.length > 0) {
+                     // They exist but not for this date
+                     pBox.classList.remove('hidden');
+                 } else {
+                     pBox.classList.add('hidden');
+                 }
+            }
+
+            pList.innerHTML = pendingContentHTML;
+            document.getElementById('pendingCount').innerText = visibleCount;
+
+        } else {
+
+            pBox.classList.add('hidden');
+        }
+
+        // Covers
+        const cList = document.getElementById('coverList');
+        document.getElementById('coverCount').innerText = state.covers.length;
+        if(state.covers.length === 0) {
+            cList.innerHTML = '<p class="text-gray-400 italic text-center text-xs">No covers yet.</p>';
+        } else {
+            cList.innerHTML = state.covers.map(c => `<div class="border-l-2 border-green-400 pl-2 py-0.5">${c}</div>`).join('');
+        }
+
+        // Cancellations
+        const xList = document.getElementById('cancelList');
+        document.getElementById('cancelCount').innerText = state.cancellations.length;
+        if(state.cancellations.length === 0) {
+            xList.innerHTML = '<p class="text-gray-400 italic text-center text-xs">No cancellations.</p>';
+        } else {
+            xList.innerHTML = state.cancellations.map(c => `<div class="border-l-2 border-red-400 pl-2 py-0.5">${c}</div>`).join('');
+        }
+    }
+
+    function generateEmailText() {
+        const d = new Date(state.date);
+        // Format: 12 Feb, 2026
+        const dateStr = d.toLocaleDateString("en-GB", { day: 'numeric', month: 'short', year: 'numeric' });
+        // Time: HH:MM
+        const timeStr = new Date().toLocaleTimeString("en-GB", { hour: '2-digit', minute: '2-digit' });
+
+        let email = `Subject: Updated(${timeStr})_Cover and Class cancellation_${dateStr}\n\n`;
+
+        // Covers
+        email += `New_Class cover today\n`;
+        if (state.covers.length > 0) {
+            email += state.covers.join('\n');
+        } else {
+            email += `- None -`;
+        }
+        
+        email += `\n\n`;
+
+        // Cancellations
+        email += `Class cancellation.\n`;
+        if (state.cancellations.length > 0) {
+            email += state.cancellations.join('\n');
+        } else {
+            email += `- None -`;
+        }
+        
+        document.getElementById('emailPreview').innerText = email;
+        state.generatedText = email;
+    }
+
+    function copyToClipboard() {
+        if (!state.generatedText) return;
+        
+        navigator.clipboard.writeText(state.generatedText).then(() => {
+            const toast = document.getElementById('toast');
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 2000);
+            
+            // Animation for visual feedback
+            document.getElementById('emailPreview').classList.add('animate-copy');
+            setTimeout(() => document.getElementById('emailPreview').classList.remove('animate-copy'), 300);
+        });
+    }
+
+</script>
+</body>
+</html>

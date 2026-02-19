@@ -1,6 +1,6 @@
 $FunctionUrl = "https://cgznmxcecljfybcgujjb.supabase.co/functions/v1/sync-tms-metrics"
 $AnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNnem5teGNlY2xqZnliY2d1ampiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc3NjUyNTMsImV4cCI6MjA4MzM0MTI1M30.e2SjA1IBFrxd4KkLrT6DYpeuHPiRSg64Jk-M3pPGC6w"
-$FailedOffsets = @(50, 95, 125, 185, 240)
+$FailedOffsets = @(25, 95, 100, 125, 235, 240)
 $MetricType = "by-topic" 
 
 Write-Host "Retrying Failed Batches (One-by-One) to bypass CPU limits..." -ForegroundColor Cyan

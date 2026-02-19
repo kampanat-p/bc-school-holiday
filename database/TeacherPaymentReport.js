@@ -31,8 +31,8 @@ function syncDailyPaymentData() {
  */
 function runBackfillPaymentData() {
   // --- ตั้งค่าช่วงเวลา Backfill ตรงนี้ ---
-  const START_DATE_STR = "2025-12-11"; 
-  const END_DATE_STR   = "2025-12-16"; 
+  const START_DATE_STR = "2025-12-23"; 
+  const END_DATE_STR   = "2025-12-31"; 
   // -------------------------------------
 
   const ui = SpreadsheetApp.getUi();
@@ -180,15 +180,19 @@ function updatePaymentLedger(startDate, endDate) {
   for (let i = 1; i < userData.length; i++) {
       let uid = String(userData[i][0]);
       let typeCode = String(userData[i][13]);
-      if (typeCode !== '210' && typeCode !== '220') continue;
       
       let fname = userData[i][2];
       let lname = userData[i][3];
       let formattedName = formatTeacherName(fname, lname);
       
+      let typeLabel = "Unassigned";
+      if (typeCode === '210') typeLabel = 'Full-time';
+      else if (typeCode === '220') typeLabel = 'Part-time';
+      else if (typeCode) typeLabel = `Type ${typeCode}`;
+
       userMap.set(uid, {
           name: formattedName,
-          type: (typeCode === '210') ? 'Full-time' : 'Part-time'
+          type: typeLabel
       });
   }
 
@@ -196,13 +200,33 @@ function updatePaymentLedger(startDate, endDate) {
   const schoolData = sheetSchool.getDataRange().getValues();
   for(let i=1; i<schoolData.length; i++) schoolMap.set(String(schoolData[i][0]), String(schoolData[i][1]));
 
-  const unavailMap = new Map();
+  // [MODIFIED] Unavailability Data -> Array of Objects for robust search
+  const unavailList = [];
   if (sheetUnavail) {
-    const uaData = sheetUnavail.getDataRange().getDisplayValues();
+    // Check headers to identify columns? Assuming user hasn't changed columns:
+    // 0:unavail_id, 1:teacher_id, 2:start_date, 3:end_date, 4:start_time, ... 6:remark
+    const uaData = sheetUnavail.getDataRange().getValues(); // Use getValues for raw objects (Dates)
     for (let i = 1; i < uaData.length; i++) {
-      // Key: TeacherID_Date_Time
-      // ⚠️ CHANGE: ใช้ safeNormalizeTime เพื่อเลี่ยงฟังก์ชันที่มีปัญหาใน TimelineService
-      unavailMap.set(`${uaData[i][1]}_${uaData[i][2]}_${safeNormalizeTime(uaData[i][4])}`, uaData[i][6]);
+      let rawDate = uaData[i][2];
+      let rawTime = uaData[i][4];
+      
+      let dateKey = "";
+      if (rawDate instanceof Date) {
+          dateKey = Utilities.formatDate(rawDate, TIME_ZONE, "yyyy-MM-dd");
+      } else if (typeof rawDate === "string" && rawDate.match(/^\d{4}-\d{2}-\d{2}/)) {
+          // If it's already a string YYYY-MM-DD
+          dateKey = rawDate.substring(0,10);
+      } else {
+          // Attempt parse? Or default to string
+          dateKey = String(rawDate);
+      }
+
+      unavailList.push({
+          teacherId: String(uaData[i][1]), // Check ID as string
+          date: dateKey, 
+          time: safeNormalizeTime(rawTime), // Normalized HH:MM
+          remark: uaData[i][6]
+      });
     }
   }
 
@@ -257,12 +281,22 @@ function updatePaymentLedger(startDate, endDate) {
           pushToOps(ledgerMap, sessionId, actUser.name, record, rowsToUpdate, rowsToInsert);
       }
 
-      // --- LOGIC B: Original Teacher ---
+      // --- LOGIC B: Original Teacher (Cancelled OR Substituted) ---
       if (originalId && userMap.has(originalId)) {
           let orgUser = userMap.get(originalId);
+
+          // 1. Check Unavailability (Robust Array Find)
+          // Note: In Sheets, dates from getDisplayValues are strings (YYYY-MM-DD), but times need care
+          // unavailList.time is already normalized "HH:MM".
+          // startTime from row[2] is also normalized via safeNormalizeTime
+          let foundUA = unavailList.find(u => 
+              String(u.teacherId) === String(originalId) && 
+              String(u.date) === String(dateStr) && 
+              String(u.time) === String(startTime)
+          );
+          let userReason = foundUA ? (foundUA.remark || "Unavailable") : null;
           
-          if (status.startsWith("Cancelled")) {
-              let userReason = unavailMap.get(`${originalId}_${dateStr}_${startTime}`);
+          if (status.startsWith("Cancelled") || status.includes("Substituted") || (originalId !== actualId && actualId)) {
               let analysis = "";
               let payStatus = "❌ No Pay";
               let unit = 0;
@@ -277,10 +311,10 @@ function updatePaymentLedger(startDate, endDate) {
               }
 
               if (userReason) {
-                  analysis = `[CONFLICT] Teacher Reason: "${userReason}". ${leadTime}`;
-                  payStatus = "⚠️ Review";
+                  analysis = `[LEAVE] Teacher Reason: "${userReason}". ${leadTime}`;
+                  payStatus = "❌ No Pay";
                   unit = 0;
-              } else {
+              } else if (status.startsWith("Cancelled")) {
                   if (isPayable) {
                       analysis = `School Cancel < 3h. ${leadTime}`;
                       payStatus = "✅ Paid (Comp)";
@@ -290,63 +324,45 @@ function updatePaymentLedger(startDate, endDate) {
                       payStatus = "❌ No Pay";
                       unit = 0;
                   }
+              } else {
+                  // Substituted / Missed without userReason (and not Cancelled status per se)
+                  // If we reach here, it implies strict substitution logic
+                   analysis = `Missed / Covered by others.`;
+                   payStatus = "❌ No Pay";
+                   unit = 0;
+              }
+
+              let eventType = status.startsWith("Cancelled") ? "Class Cancelled" : "Missed / Substituted";
+              if (originalId !== actualId && actualId) {
+                  let actName = userMap.get(actualId) ? userMap.get(actualId).name : actualId;
+                  analysis = `Covered by ${actName}. ${userReason ? '(Teacher Leave: '+userReason+')' : 'Reason: Substituted'}`;
+                  eventType = "Missed / Substituted";
               }
 
               let record = [
                   sessionId, dateStr, timeRange, schoolCode, className,
-                  orgUser.name, orgUser.type, "Class Cancelled",
+                  orgUser.name, orgUser.type, eventType,
                   analysis, payStatus, unit, lastUpdated
               ];
               pushToOps(ledgerMap, sessionId, orgUser.name, record, rowsToUpdate, rowsToInsert);
 
-          } else if (actualId && actualId !== originalId) {
-              // Missed Class
-              let reason = unavailMap.get(`${originalId}_${dateStr}_${startTime}`) || "Substituted";
-              let actName = userMap.get(actualId) ? userMap.get(actualId).name : actualId;
-              
-              let record = [
-                  sessionId, dateStr, timeRange, schoolCode, className,
-                  orgUser.name, orgUser.type, "Missed / Substituted",
-                  `Covered by ${actName}. Reason: ${reason}`,
-                  "❌ No Pay", 0, lastUpdated
-              ];
-              pushToOps(ledgerMap, sessionId, orgUser.name, record, rowsToUpdate, rowsToInsert);
-          }
+          } 
+          /* 
+             REMOVED redundant else-if block because we merged logic above 
+             to ensure userReason checks apply to both Cancelled and Substituted 
+          */
       }
   }
 
   // 5. Execute Writes (Batch)
   
-  // Helper to map record to Supabase JSON
-  const mapToSupabase = (r) => ({
-      payment_key: `${r[0]}_${r[5]}`, // Composite Key: SessionID_TeacherName (Required for Upsert)
-      session_id: r[0],
-      date: r[1],
-      time_range: r[2],
-      school: r[3],
-      class_name: r[4],
-      teacher_name: r[5],
-      teacher_type: r[6],
-      event_type: r[7],
-      system_analysis: r[8],
-      status: r[9],
-      payable_unit: r[10],
-      last_updated: (r[11] instanceof Date) ? r[11].toISOString() : r[11]
-  });
-
   if (rowsToUpdate.length > 0) {
       rowsToUpdate.forEach(item => {
           sheetLedger.getRange(item.row, 1, 1, item.values.length).setValues([item.values]);
       });
-      // Sync Updates to Supabase (Use 'payment_key' to resolve conflict)
-      const updatePayloads = rowsToUpdate.map(item => mapToSupabase(item.values));
-      sendToSupabase('db_payment_ledger', updatePayloads, 'payment_key');
   }
   if (rowsToInsert.length > 0) {
       sheetLedger.getRange(sheetLedger.getLastRow()+1, 1, rowsToInsert.length, rowsToInsert[0].length).setValues(rowsToInsert);
-      // Sync Inserts to Supabase (Use 'payment_key' to resolve conflict)
-      const insertPayloads = rowsToInsert.map(r => mapToSupabase(r));
-      sendToSupabase('db_payment_ledger', insertPayloads, 'payment_key');
   }
 
   console.log(`💾 Ledger Updated: ${rowsToUpdate.length} updated, ${rowsToInsert.length} new inserted.`);
