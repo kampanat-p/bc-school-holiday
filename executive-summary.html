@@ -199,32 +199,12 @@
             </div>
         </div>
 
-        <!-- Section 6: School Personnel Analysis -->
-        <div class="card">
-            <h3 class="font-bold text-slate-700 mb-4 text-sm flex justify-between items-center">
-                <span>🏫 School Personnel Analysis</span>
-                <span class="text-[10px] text-slate-400 font-normal">Active vs Registered Staff</span>
-            </h3>
-            <div class="overflow-x-auto max-h-[500px]">
-                <table class="w-full text-xs">
-                    <thead class="bg-slate-50 sticky top-0 z-10 shadow-sm">
-                        <tr>
-                            <th class="w-[20%] text-left p-3">School Name</th>
-                            <th class="w-[40%] text-left p-3">Active Teachers (Count)</th>
-                            <th class="w-[40%] text-left p-3">Local Teachers (Registered)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="schoolAnalysisBody" class="divide-y divide-slate-100"></tbody>
-                </table>
-            </div>
-        </div>
-        
-        <!-- Section 7: Manager's Executive Report (Accordion) -->
+        <!-- Section 7: Overall Stats Summary (Accordion) -->
          <div class="card border-blue-200 ring-4 ring-blue-50/50">
             <div class="flex flex-col mb-4">
                 <div class="flex justify-between items-start">
                     <h3 class="font-bold text-blue-800 text-lg flex items-center gap-2">
-                        <i class="fas fa-file-contract text-blue-600"></i> Executive Summary Report
+                        <i class="fas fa-file-contract text-blue-600"></i> Overall Stats Summary
                     </h3>
                     <button onclick="copyReport()" class="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1 rounded transition">
                         <i class="fas fa-copy mr-1"></i> Copy Text
@@ -617,6 +597,10 @@
                 
                 // School Counts
                 stats.bySchool[schoolInfo.name] = (stats.bySchool[schoolInfo.name] || 0) + 1;
+                
+                // Track School Details (Sessions)
+                if(!stats.schoolDetails[sId]) stats.schoolDetails[sId] = { act: {}, sess: 0 };
+                stats.schoolDetails[sId].sess++;
 
                 // Stacked Group Data
                 if (!stats.byStatusGroup[grp]) stats.byStatusGroup[grp] = { Normal:0, Covered:0, CancelBC:0, CancelSch:0 };
@@ -703,7 +687,7 @@
             renderRanking('rankCovered', stats.teachers.covered, 10);
 
             // -- SCHOOL ANALYSIS --
-            renderSchoolAnalysis(stats.schoolDetails, stats.totalTeachers, stats.totalLocalStaff);
+            // renderSchoolAnalysis(stats.schoolDetails, stats.totalTeachers, stats.totalLocalStaff); // Removed as redundant
             renderManagerReport(stats.schoolDetails, stats.total, stats.totalTeachers, stats.totalLocalStaff, startDate, endDate);
         }
 
@@ -757,6 +741,7 @@
 
                 const distinctActive = Object.keys(activeTeachers).length;
                 const distinctLocal = localIds.length;
+                const totalSessions = data[sId].sess || 0;
 
                 // Create Accordion Item
                 const item = document.createElement('div');
@@ -768,7 +753,8 @@
                             <div>
                                 <div class="font-bold text-sm text-slate-700">${school.name}</div>
                                 <div class="text-[10px] text-slate-500 mt-0.5">
-                                    <span class="bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-bold">${distinctActive} Teachers</span>
+                                    <span class="bg-blue-50 px-1.5 py-0.5 rounded text-blue-600 font-bold">${totalSessions.toLocaleString()} Classes</span>
+                                    <span class="bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-bold ml-1">${distinctActive} Teachers</span>
                                     <span class="bg-indigo-50 px-1.5 py-0.5 rounded text-indigo-600 font-bold ml-1">${distinctLocal} Local Teachers</span>
                                 </div>
                             </div>
@@ -840,89 +826,6 @@
             }).catch(err => {
                 console.error('Failed to copy: ', err);
                 alert('Failed to copy report.');
-            });
-        }
-
-        function renderSchoolAnalysis(data, totalTeachers, totalLocalStaff) {
-            const tbody = document.getElementById('schoolAnalysisBody');
-            
-            // Add Summary Header Row
-            const summaryHTML = `
-                <tr class="bg-blue-50 border-b-2 border-blue-100">
-                    <td class="p-3 font-bold text-blue-800">
-                        <i class="fas fa-calculator mr-1"></i> SELECTION SUMMARY
-                    </td>
-                    <td class="p-3 font-bold text-blue-800">
-                        ${totalTeachers || 0} Distinct Teachers Active
-                    </td>
-                    <td class="p-3 font-bold text-blue-800">
-                        ${totalLocalStaff || 0} Local Teachers Registered
-                    </td>
-                </tr>
-            `;
-
-            tbody.innerHTML = summaryHTML;
-            
-            // Get sorted list of school IDs present in data
-            const schoolIds = Object.keys(data).sort((a,b) => (metaData.schools[a]?.name || '').localeCompare(metaData.schools[b]?.name || ''));
-            
-            if(schoolIds.length === 0) {
-                 tbody.innerHTML = '<tr><td colspan="3" class="p-3 text-center text-slate-400">No data available for selected period</td></tr>';
-                 return;
-            }
-
-            schoolIds.forEach(sId => {
-                const school = metaData.schools[sId] || { name: 'Unknown', code: '', group: '' };
-                const activeTeachers = data[sId].act || {};
-                
-                // Format Active Teachers (Sorted by Count Desc)
-                const activeList = Object.entries(activeTeachers)
-                    .sort((a,b) => b[1] - a[1]) 
-                    .map(([tid, count]) => {
-                        const name = metaData.users[tid] || `ID:${tid}`;
-                        return `<span class="inline-block bg-blue-50 border border-blue-100 rounded px-1.5 py-0.5 m-0.5 text-[10px] text-blue-700 whitespace-nowrap">${name} <span class="font-bold">(${count})</span></span>`;
-                    }).join('');
-
-                // Get Local Teachers (Sorted by BC ID)
-                const localIds = metaData.affiliations[school.code] || [];
-                
-                let localList = '<span class="text-slate-400 italic text-[10px]">None registered</span>';
-                if(localIds.length > 0) {
-                    localList = localIds
-                        .sort((a,b) => (metaData.userDetails[a]?.bcId || 0) - (metaData.userDetails[b]?.bcId || 0))
-                        .map(tid => {
-                            const u = metaData.userDetails[tid];
-                            return `<div class="truncate py-0.5 hover:text-slate-900" title="BC ID: ${u.bcId}">
-                                <span class="font-mono text-slate-300 mr-1">${u.bcId}</span> ${u.name}
-                            </div>`;
-                        }).join('');
-                }
-
-                const activeListHTML = Object.entries(activeTeachers)
-                    .sort((a,b) => b[1] - a[1]) 
-                    .map(([tid, count]) => {
-                         const name = metaData.userDetails[tid]?.name || metaData.users[tid] || `ID:${tid}`;
-                         return `<span class="inline-flex items-center bg-white border border-slate-200 rounded px-1.5 py-0.5 m-0.5 text-[10px] text-slate-600 whitespace-nowrap shadow-sm">
-                            <span class="mr-1">${name}</span>
-                            <span class="font-bold text-blue-600 bg-blue-50 px-1 rounded-sm">${count}</span>
-                         </span>`;
-                    }).join('');
-                
-                tbody.innerHTML += `
-                    <tr class="hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-0 odd:bg-white even:bg-slate-50/50">
-                        <td class="p-3 align-top w-[20%]">
-                            <div class="font-bold text-slate-700 text-xs">${school.name}</div>
-                            <div class="text-[10px] text-slate-400 font-medium">${school.group}</div>
-                            <div class="text-[9px] font-mono text-slate-300 mt-1 uppercase tracking-wide">${school.code || ''}</div>
-                        </td>
-                        <td class="p-3 align-top w-[40%]">
-                            <div class="flex flex-wrap items-start content-start gap-0.5">${activeListHTML || '<span class="text-slate-300 italic">-</span>'}</div>
-                        </td>
-                        <td class="p-3 align-top w-[40%]">
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 max-h-[150px] overflow-y-auto custom-scrollbar text-[10px] text-slate-500 pr-1">${localList}</div>
-                        </td>
-                    </tr>
-                `;
             });
         }
 
