@@ -9,6 +9,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     
@@ -72,6 +73,10 @@
                             <!-- Items populated by JS -->
                         </ul>
                     </div>
+
+                    <select id="schoolFilter" class="text-xs p-2 border rounded shadow-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none max-w-[150px]">
+                        <option value="all">All Schools</option>
+                    </select>
 
                     <select id="teacherFilter" class="text-xs p-2 border rounded shadow-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none max-w-[150px]">
                         <option value="all">All Teachers</option>
@@ -301,14 +306,27 @@
         window.onload = async () => {
              // Init Supabase
              sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+             
+             // Register DataLabels
+             if(window.ChartDataLabels) Chart.register(ChartDataLabels);
 
              // Set default dates (This Month)
+             // Use local time construction to avoid UTC shift issues
              const now = new Date();
-             const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-             const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+             const y = now.getFullYear();
+             const m = now.getMonth();
              
-             document.getElementById('startDate').value = firstDay.toISOString().split('T')[0];
-             document.getElementById('endDate').value = lastDay.toISOString().split('T')[0];
+             // Helper component to format YYYY-MM-DD in local time
+             const toLocalISO = (d) => {
+                 const offset = d.getTimezoneOffset() * 60000;
+                 return new Date(d.getTime() - offset).toISOString().split('T')[0];
+             };
+
+             const firstDay = new Date(y, m, 1);
+             const lastDay = new Date(y, m + 1, 0);
+             
+             document.getElementById('startDate').value = toLocalISO(firstDay);
+             document.getElementById('endDate').value = toLocalISO(lastDay);
 
              // Load Metadata first
              await loadMetadata();
@@ -358,6 +376,20 @@
                     `;
                 });
                 updateGroupAnchor(); // Init Text
+
+
+                // Populate School Filter
+                const schoolFilter = document.getElementById('schoolFilter');
+                schoolFilter.innerHTML = '<option value="all">All Schools</option>';
+                 
+                Object.entries(metaData.schools)
+                    .sort(([,a], [,b]) => a.name.localeCompare(b.name))
+                    .forEach(([id, s]) => {
+                        const opt = document.createElement('option');
+                        opt.value = id;
+                        opt.text = s.name;
+                        schoolFilter.appendChild(opt);
+                    });
 
                 // Fetch Users
                 const { data: users } = await sbClient.from('dim_user').select('user_id, firstname_en, lastname_en, nickname_en, affiliation, braincloud_id').order('firstname_en');
@@ -440,6 +472,7 @@
             // Get selected groups array or 'all'
             const selectedGroups = getSelectedGroups(); 
             const teacherVal = document.getElementById('teacherFilter').value;
+            const schoolVal = document.getElementById('schoolFilter').value;
             
             if(!start || !end) return alert("Please select a valid date range.");
 
@@ -518,6 +551,9 @@
                 }
                 // If selectedGroups === 'all', pass
 
+                // School Filter (New)
+                if (schoolVal !== 'all' && sId !== schoolVal) return;
+
                 // Teacher Filter
                 if (teacherVal !== 'all') {
                     const org = String(r.original_teacher_id).trim();
@@ -528,15 +564,25 @@
                 filteredData.push(r);
             });
 
+            // Fetch Student Numbers (Parallel to processing to avoid UI block, but needed for render)
+            let studentData = [];
+            try {
+                const { data: sData, error: sErr } = await sbClient
+                    .from('ref_student_number_by_school')
+                    .select('school, year, no_students');
+                
+                if(!sErr && sData) studentData = sData;
+            } catch(e) { console.error("Student Data Error", e); }
+
             // 2. Process & Render Charts
-            processAndRender(filteredData, start, end);
+            processAndRender(filteredData, start, end, studentData);
 
             // 3. Reset Pagination & Load Table (Server Side)
             currentPage = 0;
             loadTablePage(selectedGroups); // Pass group filter
         }
 
-        function processAndRender(data, startDate, endDate) {
+        function processAndRender(data, startDate, endDate, studentData) {
             // -- METRICS --
             const stats = {
                 total: data.length,
@@ -548,6 +594,7 @@
                 byStatusOverall: { Normal: 0, Covered: 0, CancelBC: 0, CancelSch: 0 },
                 byStatusGroup: {}, // { GroupName: { Normal: 0... } }
                 timeSeries: {}, // { Date: Count }
+                yearly: {}, // { Year: Count }
                 teachers: { teach: {}, cover: {}, covered: {} }, // Counts
                 schoolDetails: {}, // { schoolId: { teacherCounts: { tid: count } } }
                 totalTeachers: 0,
@@ -599,8 +646,22 @@
                 stats.bySchool[schoolInfo.name] = (stats.bySchool[schoolInfo.name] || 0) + 1;
                 
                 // Track School Details (Sessions)
-                if(!stats.schoolDetails[sId]) stats.schoolDetails[sId] = { act: {}, sess: 0 };
+                // Initialize weekly breakdown if not exists
+                if(!stats.schoolDetails[sId]) stats.schoolDetails[sId] = { act: {}, sess: 0, weekly: {} };
                 stats.schoolDetails[sId].sess++;
+
+                // Determine Week Key (YYYY-Www)
+                // Simple ISO week logic or roughly by start date
+                const dObj = new Date(r.date);
+                // Get Monday of current week to group
+                const day = dObj.getDay() || 7; 
+                if(day !== 1) dObj.setHours(-24 * (day - 1));
+                const weekKey = dObj.toISOString().split('T')[0];
+                
+                if(!stats.schoolDetails[sId].weekly[weekKey]) {
+                    stats.schoolDetails[sId].weekly[weekKey] = { classes: 0, teachers: new Set() };
+                }
+                stats.schoolDetails[sId].weekly[weekKey].classes++;
 
                 // Stacked Group Data
                 if (!stats.byStatusGroup[grp]) stats.byStatusGroup[grp] = { Normal:0, Covered:0, CancelBC:0, CancelSch:0 };
@@ -613,6 +674,10 @@
                     // Fallback if no range passed (shouldn't happen with new logic)
                     stats.timeSeries[r.date] = (stats.timeSeries[r.date] || 0) + 1;
                 }
+                
+                // Yearly Chart (Aggregate from fetched data)
+                const yyyy = r.date.substring(0, 4);
+                stats.yearly[yyyy] = (stats.yearly[yyyy] || 0) + 1;
 
                 // Teacher Stats
                 const actId = String(r.actual_teacher_id).trim();
@@ -624,9 +689,18 @@
                         stats.teachers.teach[actId] = (stats.teachers.teach[actId] || 0) + 1;
                         
                         // School Breakdown
-                        if(!stats.schoolDetails[sId]) stats.schoolDetails[sId] = { act: {} };
+                        if(!stats.schoolDetails[sId]) stats.schoolDetails[sId] = { act: {}, weekly: {} };
                         stats.schoolDetails[sId].act[actId] = (stats.schoolDetails[sId].act[actId] || 0) + 1;
                         
+                        // Add to weekly set for distinct AVG calc - use weekKey from parent scope
+                        if(stats.schoolDetails[sId].weekly[weekKey]) {
+                           stats.schoolDetails[sId].weekly[weekKey].teachers.add(actId);
+                        } else {
+                           // Logic above handles session increment. This block is inside 'if(actId)'
+                           if(!stats.schoolDetails[sId].weekly) stats.schoolDetails[sId].weekly = {};
+                           stats.schoolDetails[sId].weekly[weekKey] = { classes: 0, teachers: new Set([actId]) };
+                        }
+
                         // Add to set
                         distinctActiveTeachers.add(actId);
                     }
@@ -688,10 +762,254 @@
 
             // -- SCHOOL ANALYSIS --
             // renderSchoolAnalysis(stats.schoolDetails, stats.totalTeachers, stats.totalLocalStaff); // Removed as redundant
-            renderManagerReport(stats.schoolDetails, stats.total, stats.totalTeachers, stats.totalLocalStaff, startDate, endDate);
+            renderManagerReport(stats.schoolDetails, stats.total, stats.totalTeachers, stats.totalLocalStaff, startDate, endDate, stats.yearly, studentData);
         }
 
-        function renderManagerReport(data, totalSess, totalTeach, totalLoc, start, end) {
+        function renderSchoolAnalyticsCharts(data, yearlyData, studentData) {
+            // Find or create container (inserted before the detailed list card)
+            let wrapper = document.getElementById('schoolAnalyticsWrapper');
+            const listCard = document.getElementById('sortableReportList').closest('.card');
+            
+            if(!wrapper) {
+                wrapper = document.createElement('div');
+                wrapper.id = 'schoolAnalyticsWrapper';
+                wrapper.className = 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8';
+                
+                // Card 1
+                const c1 = document.createElement('div');
+                c1.className = 'card';
+                c1.innerHTML = `
+                   <h3 class="font-bold text-slate-700 mb-4 text-sm flex justify-between">
+                       <span>Average Classes / Week</span>
+                       <span class="text-[10px] bg-emerald-50 text-emerald-600 px-2 py-1 rounded">Active Weeks Only</span>
+                   </h3>
+                   <div class="h-[300px]"><canvas id="chartAvgClass"></canvas></div>
+                `;
+                
+                // Card 2
+                const c2 = document.createElement('div');
+                c2.className = 'card';
+                c2.innerHTML = `
+                   <h3 class="font-bold text-slate-700 mb-4 text-sm flex justify-between">
+                       <span>Average Teachers / Week</span>
+                       <span class="text-[10px] bg-amber-50 text-amber-600 px-2 py-1 rounded">Active Weeks Only</span>
+                   </h3>
+                   <div class="h-[300px]"><canvas id="chartAvgTeach"></canvas></div>
+                `;
+
+                // Card 3
+                const c3 = document.createElement('div');
+                c3.className = 'card';
+                c3.innerHTML = `
+                   <h3 class="font-bold text-slate-700 mb-4 text-sm flex justify-between">
+                       <span>Projected Yearly Volume</span>
+                       <span class="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded">Based on ~40 Week Academic Year</span>
+                   </h3>
+                   <div class="h-[300px]"><canvas id="chartProjYear"></canvas></div>
+                `;
+                
+                // Card 4: Historical Yearly
+                const c4 = document.createElement('div');
+                c4.className = 'card';
+                c4.innerHTML = `
+                   <h3 class="font-bold text-slate-700 mb-4 text-sm flex justify-between">
+                       <span>Historical Yearly Volume</span>
+                       <span class="text-[10px] bg-purple-50 text-purple-600 px-2 py-1 rounded">Based on Selected Date Range</span>
+                   </h3>
+                   <div class="h-[300px]"><canvas id="chartYearlyVol"></canvas></div>
+                `;
+
+                // Card 5: Student Numbers
+                const c5 = document.createElement('div');
+                c5.className = 'card lg:col-span-2';
+                c5.innerHTML = `
+                   <h3 class="font-bold text-slate-700 mb-4 text-sm flex justify-between">
+                        <span>Student Enrollment by School</span>
+                        <span class="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded">From Registry</span>
+                   </h3>
+                   <div class="h-[300px]"><canvas id="chartStudentNum"></canvas></div>
+                `;
+
+                wrapper.appendChild(c1);
+                wrapper.appendChild(c2);
+                wrapper.appendChild(c3);
+                wrapper.appendChild(c4);
+                wrapper.appendChild(c5);
+                
+                listCard.parentNode.insertBefore(wrapper, listCard);
+            }
+
+            // Prepare Data (Sort Descending by Avg Class)
+            const sorted = [...data].sort((a,b) => b.avgClass - a.avgClass);
+            const labels = sorted.map(d => d.name);
+            const vClass = sorted.map(d => d.avgClass);
+            const vTeach = sorted.map(d => d.avgTeach);
+            const vProj = sorted.map(d => d.projYear);
+            
+            // Prepare Yearly
+            const years = Object.keys(yearlyData || {}).sort();
+            const yearVals = years.map(y => yearlyData[y]);
+
+            // Prepare Student Data
+            const activeSchoolCodes = new Set();
+            sorted.forEach(item => {
+                const sId = Object.keys(metaData.schools).find(k => metaData.schools[k].name === item.name);
+                if(sId && metaData.schools[sId].code) {
+                    activeSchoolCodes.add(metaData.schools[sId].code);
+                }
+            });
+
+            // Flatten Student Data to match charts order
+            const studentGrouping = {};
+            const allStudentYears = new Set();
+            
+            (studentData || []).forEach(sd => {
+                // Determine School Name from Code
+                // We need to reverse lookup the code to get the Name that matches 'labels'
+                // This is slightly inefficient but safe
+                const sId = Object.keys(metaData.schools).find(k => metaData.schools[k].code === sd.school);
+                if(!sId) return; // School code not found in metadata
+                
+                const sName = metaData.schools[sId].name;
+                
+                // Only include if this school is in the current report (sorted list)
+                if(!labels.includes(sName)) return;
+
+                if(!studentGrouping[sName]) studentGrouping[sName] = {};
+                const year = String(sd.year || 'Unknown').substring(0,4);
+                studentGrouping[sName][year] = sd.no_students;
+                allStudentYears.add(year);
+            });
+
+            const studentYearsSorted = Array.from(allStudentYears).sort();
+            
+            const studentDatasets = studentYearsSorted.map((yr, idx) => {
+                const colorPalette = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+                return {
+                    label: yr,
+                    data: labels.map(l => studentGrouping[l] ? (studentGrouping[l][yr] || 0) : 0),
+                    backgroundColor: colorPalette[idx % colorPalette.length],
+                    borderRadius: 4
+                };
+            });
+            
+            // Destroy Old
+            if(chartInstances.avgClass) chartInstances.avgClass.destroy();
+            if(chartInstances.avgTeach) chartInstances.avgTeach.destroy();
+            if(chartInstances.projYear) chartInstances.projYear.destroy();
+            if(chartInstances.yearlyVol) chartInstances.yearlyVol.destroy();
+            if(chartInstances.studentNum) chartInstances.studentNum.destroy();
+
+            const commonOpts = {
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: { 
+                    legend: { display: false },
+                    datalabels: {
+                        color: '#0f172a', // Slate-900 (High Contrast)
+                        anchor: 'end',
+                        align: 'end',
+                        offset: 4,
+                        font: { weight: 'bold', size: 10 },
+                        formatter: (val) => val === 0 ? '' : val.toLocaleString()
+                    }
+                }, 
+                scales: { x: { beginAtZero: true } },
+                layout: { padding: { right: 50 } } // Added more space for labels
+            };
+
+            // Chart 1
+            chartInstances.avgClass = new Chart(document.getElementById('chartAvgClass'), {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{ label: 'Avg Classes', data: vClass, backgroundColor: '#10b981', borderRadius: 4 }]
+                },
+                options: commonOpts
+            });
+
+            // Chart 2
+            chartInstances.avgTeach = new Chart(document.getElementById('chartAvgTeach'), {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{ label: 'Avg Teachers', data: vTeach, backgroundColor: '#f59e0b', borderRadius: 4 }]
+                },
+                options: commonOpts
+            });
+
+            // Chart 3
+            chartInstances.projYear = new Chart(document.getElementById('chartProjYear'), {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{ label: 'Projected Year', data: vProj, backgroundColor: '#3b82f6', borderRadius: 4 }]
+                },
+                options: commonOpts
+            });
+            
+            // Chart 4 (Yearly Volume)
+            const yearlyOpts = {
+                maintainAspectRatio: false,
+                indexAxis: 'x', // Vertical Bars for Time Series
+                plugins: { 
+                    legend: { display: false },
+                    datalabels: {
+                        color: '#0f172a', // High Contrast
+                        anchor: 'end',
+                        align: 'top',
+                        offset: -20, // Inside the bar if possible, or top
+                        align: 'end', // Actually stick to 'end' for above
+                        offset: 0,
+                        font: { weight: 'bold', size: 10 },
+                        formatter: (val) => val === 0 ? '' : val.toLocaleString()
+                    }
+                }, 
+                scales: { 
+                    y: { beginAtZero: true, grid: { borderDash: [2, 2] } },
+                    x: { grid: { display: false } }
+                },
+                layout: { padding: { top: 20 } }
+            };
+
+            chartInstances.yearlyVol = new Chart(document.getElementById('chartYearlyVol'), {
+                type: 'bar',
+                data: {
+                    labels: years,
+                    datasets: [{ label: 'Total Classes', data: yearVals, backgroundColor: '#8b5cf6', borderRadius: 4 }]
+                },
+                options: yearlyOpts
+            });
+
+             // Chart 5 (Students)
+             chartInstances.studentNum = new Chart(document.getElementById('chartStudentNum'), {
+                type: 'bar',
+                data: {
+                    labels: labels, // Use same school order
+                    datasets: studentDatasets
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    indexAxis: 'x', // Vertical bars (School on X axis)
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 10, font: {size: 10} } },
+                        datalabels: {
+                            rotation: -90, align: 'top', anchor: 'end',
+                            offset: -4, color: '#0f172a',
+                            font: {size: 10, weight:'bold'},
+                            formatter: (val) => val > 0 ? val.toLocaleString() : ''
+                        }
+                    },
+                    scales: { 
+                        y: { beginAtZero: true },
+                        x: { grid: { display: false }, ticks: { maxRotation: 90, minRotation: 45, font: {size: 10} } }
+                    },
+                    layout: { padding: { top: 20 } }
+                }
+            });
+        }
+
+        function renderManagerReport(data, totalSess, totalTeach, totalLoc, start, end, yearlyData, studentData) {
             // Update Report Meta
             const groups = getSelectedGroups();
             const groupText = groups === 'all' ? 'All School Groups' : groups.join(', ');
@@ -714,6 +1032,7 @@
                  return;
             }
 
+            let analyticsData = [];
             schoolIds.forEach(sId => {
                 const school = metaData.schools[sId] || { name: 'Unknown', code: '' };
                 const activeTeachers = data[sId].act || {};
@@ -743,23 +1062,66 @@
                 const distinctLocal = localIds.length;
                 const totalSessions = data[sId].sess || 0;
 
+                // --- NEW STATS CALC ---
+                const weeks = Object.values(data[sId].weekly || {});
+                
+                // Dynamic Threshold: If max weekly classes < 20, use 0 as threshold (count all weeks with data)
+                // If max > 20, filtering low-activity weeks (holidays/exams) helps accuracy.
+                // Let's use a simpler heuristic: Filter out weeks with < 10% of the max weekly volume seen for that school.
+                // This removes holidays without excluding small schools.
+                const maxWeekVol = Math.max(...weeks.map(w => w.classes), 0);
+                const threshold = Math.max(5, maxWeekVol * 0.2); // At least 5 classes, or 20% of peak
+
+                const activeWeeks = weeks.filter(w => w.classes >= threshold);
+
+                const avgClassesPerWeek = activeWeeks.length > 0 
+                     ? (activeWeeks.reduce((acc, curr) => acc + curr.classes, 0) / activeWeeks.length) 
+                     : 0;
+                
+                // For teachers, average over active weeks or all? User said "we need for each school"
+                // Assuming capacity planning based on active weeks is safer.
+                const avgTeachersPerWeek = activeWeeks.length > 0
+                     ? (activeWeeks.reduce((acc, curr) => acc + curr.teachers.size, 0) / activeWeeks.length)
+                     : 0;
+                
+                // If avgClasses > 0, calculate yearly projection (Avg * ~36 weeks or just Avg?)
+                // User asked "classes per week/year". Let's show both if feasible or Avg/Week and Projected Year.
+                // Standard academic year is often ~36-40 weeks. Let's stick to Avg/Week as base truth.
+                const estYearly = avgClassesPerWeek * 40; // Approx academic year
+                
+                // Track for Charts
+                analyticsData.push({
+                    name: school.name,
+                    avgClass: Math.round(avgClassesPerWeek),
+                    avgTeach: parseFloat(avgTeachersPerWeek.toFixed(1)),
+                    projYear: Math.round(estYearly)
+                });
+                
+                // Display text for active weeks context
+                const activeWeekText = `${activeWeeks.length} active wks (>${Math.round(threshold)} cls)`;
+
                 // Create Accordion Item
                 const item = document.createElement('div');
                 item.className = 'accordion-item group';
                 item.innerHTML = `
                     <div class="accordion-header" onclick="this.nextElementSibling.classList.toggle('open'); this.querySelector('.fa-chevron-down').classList.toggle('rotate-180')">
-                        <div class="flex items-center gap-3">
+                        <div class="flex items-center gap-3 w-full">
                             <i class="fas fa-grip-vertical text-slate-300 cursor-move group-hover:text-slate-500"></i>
-                            <div>
-                                <div class="font-bold text-sm text-slate-700">${school.name}</div>
-                                <div class="text-[10px] text-slate-500 mt-0.5">
-                                    <span class="bg-blue-50 px-1.5 py-0.5 rounded text-blue-600 font-bold">${totalSessions.toLocaleString()} Classes</span>
-                                    <span class="bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-bold ml-1">${distinctActive} Teachers</span>
-                                    <span class="bg-indigo-50 px-1.5 py-0.5 rounded text-indigo-600 font-bold ml-1">${distinctLocal} Local Teachers</span>
+                            <div class="flex-grow">
+                                <div class="font-bold text-sm text-slate-700 flex justify-between items-center pr-4">
+                                    <span>${school.name}</span>
+                                    <span class="text-[10px] text-slate-400 font-normal" title="Count of weeks with classes > 20% of peak">${activeWeekText}</span>
+                                </div>
+                                <div class="text-[10px] text-slate-500 mt-1 flex flex-wrap gap-2">
+                                    <span class="bg-blue-50 px-1.5 py-0.5 rounded text-blue-600 font-bold" title="Total in selection">${totalSessions.toLocaleString()} Total</span>
+                                    <span class="bg-emerald-50 px-1.5 py-0.5 rounded text-emerald-600 font-bold" title="Avg classes in active weeks">~${Math.round(avgClassesPerWeek)} Cls/Wk</span>
+                                    <span class="bg-amber-50 px-1.5 py-0.5 rounded text-amber-600 font-bold" title="Avg unique teachers in active weeks">~${avgTeachersPerWeek.toFixed(1)} Avg Tch/Wk</span>
+                                    <span class="bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-bold ml-1">${distinctActive} T.Total</span>
+                                    <span class="bg-indigo-50 px-1.5 py-0.5 rounded text-indigo-600 font-bold ml-1">${distinctLocal} L.Total</span>
                                 </div>
                             </div>
                         </div>
-                        <i class="fas fa-chevron-down text-slate-400 transition-transform duration-200"></i>
+                        <i class="fas fa-chevron-down text-slate-400 transition-transform duration-200 ml-2"></i>
                     </div>
                     <div class="accordion-content">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 p-4">
@@ -780,10 +1142,14 @@
                                 </ul>
                             </div>
                         </div>
+                        </div>
                     </div>
                 `;
                 container.appendChild(item);
             });
+            
+            // -- RENDER NEW ANALYTICS CHARTS --
+            renderSchoolAnalyticsCharts(analyticsData, yearlyData, studentData);
             
              // Sortable Init
             if(!window.sortableInstance) {
@@ -979,7 +1345,7 @@
                 data: {
                     labels: displayLabels,
                     datasets: [{
-                        label: `${aggType}ly Sessions`,
+                        label: aggType === 'Day' ? 'Daily Sessions' : `${aggType}ly Sessions`,
                         data: aggValues,
                         borderColor: '#0ea5e9',
                         backgroundColor: 'rgba(14, 165, 233, 0.1)',
@@ -997,6 +1363,7 @@
                         intersect: false, 
                     },
                     plugins: {
+                        datalabels: { display: false },
                         tooltip: {
                             callbacks: {
                                 title: function(context) {
@@ -1051,6 +1418,7 @@
             const start = document.getElementById('startDate').value;
             const end = document.getElementById('endDate').value;
             const teacherVal = document.getElementById('teacherFilter').value;
+            const schoolVal = document.getElementById('schoolFilter').value;
             
             // Re-fetch logic for group (using default 'all' if not passed from param to avoid breaking initial call)
             if(!selectedGroups) selectedGroups = getSelectedGroups();
@@ -1076,6 +1444,11 @@
             // NOTE: If we ignore 'Trial School' globally, we must explicitly exclude it here too if 'all' is selected
             if (selectedGroups === 'all') {
                 query = query.neq('dim_school.school_group', 'Trial School');
+            }
+
+            // Apply School Filter
+            if (schoolVal !== 'all') {
+                query = query.eq('school_id', schoolVal);
             }
 
             // Apply Teacher Filter
